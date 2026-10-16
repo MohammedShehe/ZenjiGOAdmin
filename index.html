@@ -40,9 +40,9 @@
           <h2>Welcome back</h2><p class="muted">Sign in with your email and password. A one-time code is required next.</p>
           <form id="loginForm">
             <label class="form-label">Email address</label>
-            <div class="input-icon"><i class="bi bi-envelope"></i><input id="loginEmail" type="email" class="form-control" value="admin@zenjigo.com" required></div>
+            <div class="input-icon"><i class="bi bi-envelope"></i><input id="loginEmail" type="email" class="form-control" value="admin@zenjigo.example" required></div>
             <label class="form-label mt-3">Password</label>
-            <div class="input-icon"><i class="bi bi-lock"></i><input id="loginPassword" type="password" class="form-control" value="ZenjiGO@2026" required><button type="button" class="icon-btn password-toggle"><i class="bi bi-eye"></i></button></div>
+            <div class="input-icon"><i class="bi bi-lock"></i><input id="loginPassword" type="password" class="form-control" value="ChangeMe_StrongPassword_123!" required><button type="button" class="icon-btn password-toggle"><i class="bi bi-eye"></i></button></div>
             <div class="d-flex justify-content-between align-items-center mt-3"><label class="form-check"><input class="form-check-input" type="checkbox" checked><span class="form-check-label">Remember device</span></label><button type="button" class="link-btn" data-auth="forgot">Forgot password?</button></div>
             <button class="btn btn-primary w-100 mt-4 loading-btn" type="submit"><span class="btn-label">Continue securely</span><span class="spinner-border spinner-border-sm btn-spinner"></span></button>
           </form>
@@ -58,7 +58,7 @@
 
         <div id="authStepForgot" class="auth-step">
           <button class="back-btn" data-auth="login"><i class="bi bi-arrow-left"></i></button><span class="eyebrow text-primary">ACCOUNT RECOVERY</span><h2>Forgot password?</h2><p class="muted">Enter the Super Admin email address to receive a recovery OTP.</p>
-          <form id="forgotForm"><label class="form-label">Email address</label><div class="input-icon"><i class="bi bi-envelope"></i><input id="forgotEmail" type="email" class="form-control" value="admin@zenjigo.com" required></div><button class="btn btn-primary w-100 mt-4 loading-btn" type="submit"><span class="btn-label">Send recovery OTP</span><span class="spinner-border spinner-border-sm btn-spinner"></span></button></form>
+          <form id="forgotForm"><label class="form-label">Email address</label><div class="input-icon"><i class="bi bi-envelope"></i><input id="forgotEmail" type="email" class="form-control" value="admin@zenjigo.example" required></div><button class="btn btn-primary w-100 mt-4 loading-btn" type="submit"><span class="btn-label">Send recovery OTP</span><span class="spinner-border spinner-border-sm btn-spinner"></span></button></form>
         </div>
 
         <div id="authStepForgotOtp" class="auth-step">
@@ -126,6 +126,12 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    window.ZENJIGO_ADMIN_CONFIG = {
+      apiBase: localStorage.getItem('zenjigo-api-url') || (location.origin.includes('5000') ? location.origin + '/api/v1' : 'http://localhost:5000/api/v1')
+    };
+  </script>
+  <script src="assets/js/api.js"></script>
   <script src="assets/js/data.js"></script>
   <script src="assets/js/app.js"></script>
   <script src="assets/js/flows.js"></script>
