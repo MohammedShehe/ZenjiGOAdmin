@@ -60,7 +60,25 @@ document.addEventListener('click', async (e) => {
       /* Drivers */
       case 'add-driver': {
         openModal('DRIVER', 'Add driver',
-          `<form id="flowForm" class="professional-form"><div class="form-intro"><span class="form-icon"><i class="bi bi-person-vcard"></i></span><div><h6>Driver profile</h6><p>Enter the driver's contact and vehicle information.</p></div></div><div class="row g-3"><div class="col-12 col-md-6">${input('Full name', 'fullName')}</div><div class="col-12 col-md-6">${input('Phone number', 'phone', 'tel', '', true, 'placeholder="+255…"')}</div><div class="col-12 col-md-6">${input('Email address', 'email', 'email', '', false)}</div><div class="col-12 col-md-6">${select('Vehicle type', 'vehicleType', ['taxi', 'boda', 'bajaji'])}</div><div class="col-12 col-md-6">${input('Plate number', 'plateNumber')}</div><div class="col-12 col-md-6">${input('Make / model', 'make', 'text', '', false)}</div><div class="col-12 col-md-6">${select('Application status', 'status', ['under_review', 'active'])}</div></div></form>`,
+          `<form id="flowForm" class="professional-form">
+            <div class="form-intro"><span class="form-icon"><i class="bi bi-person-vcard"></i></span>
+              <div><h6>Driver profile</h6><p>Enter contact and full vehicle details (same fields as driver registration).</p></div>
+            </div>
+            <div class="row g-3">
+              <div class="col-12 col-md-6">${input('Full name', 'fullName')}</div>
+              <div class="col-12 col-md-6">${input('Phone number', 'phone', 'tel', '', true, 'placeholder="+255…"')}</div>
+              <div class="col-12 col-md-6">${input('Email address', 'email', 'email', '', false)}</div>
+              <div class="col-12 col-md-6">${input('National ID', 'nationalId', 'text', '', false)}</div>
+              <div class="col-12">${input('Home address', 'homeAddress', 'text', '', false)}</div>
+              <div class="col-12 col-md-4">${select('Vehicle type', 'vehicleType', ['taxi', 'boda', 'bajaji'])}</div>
+              <div class="col-12 col-md-4">${input('Plate number', 'plateNumber')}</div>
+              <div class="col-12 col-md-4">${input('Color', 'color', 'text', '', false)}</div>
+              <div class="col-12 col-md-4">${input('Make', 'make', 'text', '', false)}</div>
+              <div class="col-12 col-md-4">${input('Model', 'model', 'text', '', false)}</div>
+              <div class="col-12 col-md-4">${input('Year', 'year', 'number', '', false, 'min="1990" max="2035" placeholder="e.g. 2020"')}</div>
+              <div class="col-12 col-md-6">${select('Application status', 'status', ['under_review', 'active', 'pending'])}</div>
+            </div>
+          </form>`,
           `<button class="btn btn-primary" data-flow-submit="create-driver"><i class="bi bi-check2-circle me-1"></i>Create driver</button>`);
         break;
       }
@@ -444,9 +462,19 @@ document.addEventListener('click', async (e) => {
     switch (action) {
       case 'create-driver':
         await API.post('/admin/drivers', {
-          fullName: data.fullName, phone: data.phone, email: data.email || null,
-          vehicleType: data.vehicleType, plateNumber: data.plateNumber, make: data.make || null,
-          status: data.status, applicationStatus: data.status
+          fullName: data.fullName,
+          phone: data.phone,
+          email: data.email || null,
+          nationalId: data.nationalId || null,
+          homeAddress: data.homeAddress || null,
+          vehicleType: data.vehicleType,
+          plateNumber: data.plateNumber,
+          make: data.make || null,
+          model: data.model || null,
+          color: data.color || null,
+          year: data.year ? Number(data.year) : null,
+          status: data.status,
+          applicationStatus: data.status
         });
         toast('Driver created');
         closeModal();

@@ -304,7 +304,7 @@ function tableWrap(title, actionsHtml, headHtml, bodyHtml, emptyMsg) {
 function toolbar(searchId, extra = '') {
   return `<div class="toolbar d-flex flex-wrap gap-2 mb-3">
     <div class="global-search flex-grow-1" style="max-width:320px"><i class="bi bi-search"></i>
-      <input id="${searchId}" placeholder="Filter table..."></div>
+      <input id="${searchId}" placeholder="Search by name, phone, email, ID, code..."></div>
     ${extra}
   </div>`;
 }
@@ -346,7 +346,7 @@ window.AdminPages = {
     return toolbar('rideSearch') + tableWrap('All rides',
       `<button class="btn btn-sm btn-outline-primary" id="btnRefreshRides"><i class="bi bi-arrow-clockwise"></i> Refresh</button>`,
       '<th>ID</th><th>Rider</th><th>Driver</th><th>Type</th><th>From → To</th><th>Fare</th><th>Status</th><th>Time</th>',
-      D.rides.map((r) => `<tr data-search="${esc((r.id + r.rider + r.driver + r.status).toLowerCase())}">
+      D.rides.map((r) => `<tr data-search="${esc((String(r.id)+' '+(r.code||'')+' '+r.rider+' '+r.driver+' '+(r.type||'')+' '+r.status+' '+(r.from||'')+' '+(r.to||'')).toLowerCase())}">
         <td><b>${esc(r.id)}</b></td><td>${esc(r.rider)}</td><td>${esc(r.driver)}</td><td>${esc(r.type)}</td>
         <td class="small">${esc(r.from)} → ${esc(r.to)}</td><td>${money(r.fare)}</td><td>${badge(r.status)}</td><td class="small">${esc(r.time)}</td></tr>`).join(''));
   },
@@ -358,7 +358,7 @@ window.AdminPages = {
       `<button class="btn btn-sm btn-outline-primary" id="btnRefreshArchive"><i class="bi bi-arrow-clockwise"></i> Refresh</button>`)
       + tableWrap('Archived users', 'Users removed from live data. Restore brings them back exactly; permanent delete cannot be undone.',
         '<th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>Reason</th><th>Archived</th><th></th>',
-        rows.map((a) => `<tr data-search="${esc((a.name + a.role + a.phone + (a.email||'') + (a.reason||'')).toLowerCase())}">
+        rows.map((a) => `<tr data-search="${esc((String(a.id)+' '+String(a.originalUserId||'')+' '+a.name+' '+a.role+' '+a.phone+' '+(a.email||'')+' '+(a.reason||'')).toLowerCase())}">
           <td>${userCell(a.name, '#' + a.originalUserId, 'gray')}</td>
           <td>${badge(a.role)}</td>
           <td>${esc(a.phone)}</td>
@@ -377,7 +377,7 @@ window.AdminPages = {
        <button class="btn btn-sm btn-outline-primary" id="btnRefreshDrivers"><i class="bi bi-arrow-clockwise"></i></button>`)
       + tableWrap('Drivers', '',
         '<th>Driver</th><th>Phone</th><th>Email</th><th>Type</th><th>Plate</th><th>Make / Model</th><th>Color</th><th>Year</th><th>Rides</th><th>Rating</th><th>Status</th><th>Online</th><th></th>',
-        D.drivers.map((d) => `<tr data-search="${esc((d.name + d.phone + (d.email||'') + d.status + d.plate + (d.make||'') + (d.model||'')).toLowerCase())}">
+        D.drivers.map((d) => `<tr data-search="${esc((String(d.id)+' '+String(d.code||'')+' '+d.name+' '+d.phone+' '+(d.email||'')+' '+d.status+' '+d.plate+' '+(d.make||'')+' '+(d.model||'')+' '+(d.color||'')+' '+(d.year||'')).toLowerCase())}">
           <td>${userCell(d.name, d.code, 'green')}</td><td>${esc(d.phone)}</td><td class="small">${esc(d.email)}</td>
           <td>${esc(d.type)}</td><td>${esc(d.plate)}</td>
           <td class="small">${esc([d.make, d.model].filter(Boolean).join(' ') || '—')}</td>
@@ -400,7 +400,7 @@ window.AdminPages = {
        <button class="btn btn-sm btn-outline-primary" id="btnRefreshRiders"><i class="bi bi-arrow-clockwise"></i></button>`)
       + tableWrap('Riders', '',
         '<th>Rider</th><th>Phone</th><th>Email</th><th>Area</th><th>Rides</th><th>Wallet</th><th>Status</th><th></th>',
-        D.riders.map((r) => `<tr data-search="${esc((r.name + r.phone + r.status).toLowerCase())}">
+        D.riders.map((r) => `<tr data-search="${esc((String(r.id)+' '+r.name+' '+r.phone+' '+(r.email||'')+' '+r.status+' '+(r.island||'')+' '+(r.area||'')).toLowerCase())}">
           <td>${userCell(r.name, r.email, 'blue')}</td><td>${esc(r.phone)}</td><td>${esc(r.email)}</td>
           <td>${esc(r.island)} / ${esc(r.area)}</td><td>${r.rides}</td><td>${money(r.wallet)}</td><td>${badge(r.status)}</td>
           <td class="text-nowrap">
@@ -417,7 +417,7 @@ window.AdminPages = {
        <button class="btn btn-sm btn-outline-primary" id="btnRefreshAdmins"><i class="bi bi-arrow-clockwise"></i></button>`)
       + tableWrap('Administrators', '',
         '<th>Name</th><th>Email</th><th>Phone</th><th>Status</th><th>Created</th><th>Last login</th><th></th>',
-        D.admins.map((a) => `<tr data-search="${esc((a.name + a.email + a.status).toLowerCase())}">
+        D.admins.map((a) => `<tr data-search="${esc((String(a.id)+' '+a.name+' '+(a.email||'')+' '+(a.phone||'')+' '+a.status).toLowerCase())}">
           <td>${userCell(a.name, 'Admin', 'purple')}</td><td>${esc(a.email)}</td><td>${esc(a.phone)}</td>
           <td>${badge(a.status)}</td><td class="small">${esc(a.created)}</td><td class="small">${esc(a.lastLogin)}</td>
           <td class="text-nowrap">
@@ -429,7 +429,7 @@ window.AdminPages = {
   parcels() {
     return toolbar('parcelSearch') + tableWrap('Parcels', '',
       '<th>Code</th><th>Rider</th><th>Driver</th><th>Pickup → Drop</th><th>Weight</th><th>Status</th><th>Time</th>',
-      D.parcels.map((p) => `<tr data-search="${esc((p.id + p.rider + p.status).toLowerCase())}">
+      D.parcels.map((p) => `<tr data-search="${esc((String(p.id)+' '+(p.rider||'')+' '+(p.driver||'')+' '+p.status).toLowerCase())}">
         <td><b>${esc(p.id)}</b></td><td>${esc(p.rider)}</td><td>${esc(p.driver)}</td>
         <td class="small">${esc(p.pickup)} → ${esc(p.drop)}</td><td>${esc(p.weight)}</td><td>${badge(p.status)}</td><td class="small">${esc(p.time)}</td></tr>`).join(''));
   },
@@ -439,7 +439,7 @@ window.AdminPages = {
       `<button class="btn btn-sm btn-primary" data-action="add-tour"><i class="bi bi-plus-lg"></i> Add package</button>`)
       + tableWrap('Tour packages', '',
         '<th>Name</th><th>Description</th><th>Price</th><th>Duration</th><th>Max</th><th>Status</th><th></th>',
-        D.tours.map((t) => `<tr data-search="${esc((t.name + t.status).toLowerCase())}">
+        D.tours.map((t) => `<tr data-search="${esc((String(t.id)+' '+(t.name||'')+' '+t.status).toLowerCase())}">
           <td><b>${esc(t.name)}</b></td><td class="small">${esc(t.description).slice(0, 80)}</td>
           <td>${money(t.price)}</td><td>${esc(t.duration)} h</td><td>${esc(t.max)}</td><td>${badge(t.status)}</td>
           <td class="text-nowrap">
@@ -469,7 +469,7 @@ window.AdminPages = {
   withdrawals() {
     return toolbar('payoutSearch') + tableWrap('Payout requests', '',
       '<th>ID</th><th>Driver</th><th>Method</th><th>Amount</th><th>Requested</th><th>Status</th><th></th>',
-      D.payouts.map((p) => `<tr data-search="${esc((p.driver + p.status).toLowerCase())}">
+      D.payouts.map((p) => `<tr data-search="${esc((String(p.id)+' '+(p.driver||'')+' '+p.status+' '+(p.method||'')).toLowerCase())}">
         <td>${p.id}</td><td>${esc(p.driver)}</td><td>${esc(p.method)}</td><td>${money(p.amount)}</td>
         <td class="small">${esc(p.requested)}</td><td>${badge(p.status)}</td>
         <td class="text-nowrap">${p.status === 'pending' ? `
@@ -485,7 +485,7 @@ window.AdminPages = {
       `<button class="btn btn-sm btn-primary" data-action="add-promo"><i class="bi bi-plus-lg"></i> Create promo</button>`)
       + tableWrap('Promotions', '',
         '<th>Code</th><th>Description</th><th>Discount</th><th>Applies</th><th>Usage</th><th>Status</th><th></th>',
-        D.promos.map((p) => `<tr data-search="${esc((p.code + p.status).toLowerCase())}">
+        D.promos.map((p) => `<tr data-search="${esc((String(p.id)+' '+(p.code||'')+' '+p.status+' '+(p.name||'')).toLowerCase())}">
           <td><b>${esc(p.code)}</b></td><td>${esc(p.description)}</td><td>${esc(p.discount)}</td>
           <td>${esc(p.service)}</td><td>${esc(p.usage)}</td><td>${badge(p.status)}</td>
           <td class="text-nowrap">
@@ -558,13 +558,17 @@ window.AdminPages = {
 
 /* ---------- Event binding ---------- */
 function bindPageEvents() {
-  // Table filter
+  // Table filter (supports name, phone, email, plate, codes, and numeric IDs)
   $$('.toolbar input[id$="Search"]').forEach((inp) => {
     inp.oninput = () => {
       const q = inp.value.toLowerCase().trim();
       $$('#content tbody tr').forEach((tr) => {
-        const hay = (tr.getAttribute('data-search') || tr.textContent).toLowerCase();
-        tr.classList.toggle('d-none', q && !hay.includes(q));
+        if (!q) { tr.classList.remove('d-none'); return; }
+        const hay = (tr.getAttribute('data-search') || tr.textContent || '').toLowerCase();
+        const match = hay.includes(q)
+          || hay.split(/\s+/).some((tok) => tok === q || tok.replace(/^#/, '') === q)
+          || (q.replace(/\D/g, '') && hay.replace(/\D/g, '').includes(q.replace(/\D/g, '')));
+        tr.classList.toggle('d-none', !match);
       });
     };
   });
@@ -692,7 +696,18 @@ function initAuthUI() {
   const applyTheme = (theme) => { document.documentElement.dataset.theme = theme; document.documentElement.setAttribute('data-bs-theme', theme); localStorage.setItem('zenjigo-theme', theme); const icon = $('#themeBtn i'); if (icon) icon.className = 'bi ' + (theme === 'dark' ? 'bi-sun' : 'bi-moon-stars'); };
   applyTheme(localStorage.getItem('zenjigo-theme') || 'light');
   $('#themeBtn')?.addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
-  $('#globalSearch')?.addEventListener('input', (e) => { const q = e.target.value.toLowerCase().trim(); $$('#content tbody tr').forEach(tr => { const hay = (tr.getAttribute('data-search') || tr.textContent).toLowerCase(); tr.classList.toggle('d-none', Boolean(q) && !hay.includes(q)); }); });
+  $('#globalSearch')?.addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase().trim();
+    $$('#content tbody tr').forEach((tr) => {
+      if (!q) { tr.classList.remove('d-none'); return; }
+      const hay = (tr.getAttribute('data-search') || tr.textContent || '').toLowerCase();
+      const digits = q.replace(/\D/g, '');
+      const match = hay.includes(q)
+        || hay.split(/\s+/).some((tok) => tok === q || tok.replace(/^#/, '') === q)
+        || (digits && hay.replace(/\D/g, '').includes(digits));
+      tr.classList.toggle('d-none', !match);
+    });
+  });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
