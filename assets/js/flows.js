@@ -5,6 +5,10 @@ const API = window.ZenjiGOAdminAPI;
 const D = window.ZENJIGO_DATA;
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const statusClass = (s) => /active|success|completed|verified|delivered|confirmed|approved|paid/i.test(s) ? 'success'
+  : /pending|review|assigned|arriving|searching|due|investigating|under_review/i.test(s) ? 'warning'
+  : /cancel|reject|restrict|critical|failed|suspended/i.test(s) ? 'danger' : 'info';
+const statusBadge = (s) => `<span class="status ${statusClass(s)}">${esc(String(s || '—').replace(/_/g, ' '))}</span>`;
 
 function input(label, name, type = 'text', value = '', required = true, extra = '') {
   return `<div class="mb-3"><label class="form-label">${esc(label)}</label>
@@ -18,7 +22,11 @@ function select(label, name, options, value = '') {
 }
 function textarea(label, name, value = '', rows = 3) {
   return `<div class="mb-3"><label class="form-label">${esc(label)}</label>
-    <textarea class="form-control" name="${esc(name)}" rows="${rows}">${esc(value)}</textarea></div>`;
+    <textarea class="form-control" name="${esc(name)}" rows="${rows}" required>${esc(value)}</textarea></div>`;
+}
+function userOptions() {
+  const users = [...(D.riders || []).map(u => ({...u, role:'Rider'})), ...(D.drivers || []).map(u => ({...u, role:'Driver'}))];
+  return users.map(u => `<option value="${esc(u.dbId || u.id)}">${esc(u.name || 'Unnamed user')} · ${esc(u.role)} · ${esc(u.phone || 'No phone')} (#${esc(u.dbId || u.id)})</option>`).join('');
 }
 
 function openModal(eyebrow, title, bodyHtml, footerHtml) {
@@ -52,45 +60,186 @@ document.addEventListener('click', async (e) => {
       /* Drivers */
       case 'add-driver': {
         openModal('DRIVER', 'Add driver',
-          `<form id="flowForm">
-            ${input('Full name', 'fullName')}
-            ${input('Phone', 'phone', 'tel')}
-            ${input('Email', 'email', 'email', '', false)}
-            ${select('Vehicle type', 'vehicleType', ['taxi', 'boda', 'bajaji'])}
-            ${input('Plate number', 'plateNumber')}
-            ${input('Make / model', 'make', 'text', '', false)}
-            ${select('Status', 'status', ['under_review', 'active'])}
-          </form>`,
-          `<button class="btn btn-primary" data-flow-submit="create-driver">Create driver</button>`);
+          `<form id="flowForm" class="professional-form"><div class="form-intro"><span class="form-icon"><i class="bi bi-person-vcard"></i></span><div><h6>Driver profile</h6><p>Enter the driver's contact and vehicle information.</p></div></div><div class="row g-3"><div class="col-12 col-md-6">${input('Full name', 'fullName')}</div><div class="col-12 col-md-6">${input('Phone number', 'phone', 'tel', '', true, 'placeholder="+255…"')}</div><div class="col-12 col-md-6">${input('Email address', 'email', 'email', '', false)}</div><div class="col-12 col-md-6">${select('Vehicle type', 'vehicleType', ['taxi', 'boda', 'bajaji'])}</div><div class="col-12 col-md-6">${input('Plate number', 'plateNumber')}</div><div class="col-12 col-md-6">${input('Make / model', 'make', 'text', '', false)}</div><div class="col-12 col-md-6">${select('Application status', 'status', ['under_review', 'active'])}</div></div></form>`,
+          `<button class="btn btn-primary" data-flow-submit="create-driver"><i class="bi bi-check2-circle me-1"></i>Create driver</button>`);
         break;
       }
       case 'edit-driver': {
         const d = D.drivers.find((x) => String(x.id) === String(id));
         if (!d) return toast('Driver not found', 'danger');
+        const vType = String(d.vehicle || d.type || 'taxi').toLowerCase().replace('—', 'taxi');
         openModal('DRIVER', 'Edit driver',
-          `<form id="flowForm">
-            ${input('Full name', 'fullName', 'text', d.name)}
-            ${input('Phone', 'phone', 'tel', d.phone)}
-            ${input('Email', 'email', 'email', d.email === '—' ? '' : d.email, false)}
-            ${select('Vehicle type', 'vehicleType', ['taxi', 'boda', 'bajaji'], (d.vehicle || d.type || 'taxi').toLowerCase())}
-            ${input('Plate number', 'plateNumber', 'text', d.plate === '—' ? '' : d.plate)}
-            ${input('Make', 'make', 'text', d.make || '', false)}
-            ${select('Application status', 'applicationStatus', ['under_review', 'active', 'rejected'], d.status)}
+          `<form id="flowForm" class="professional-form">
+            <div class="row g-2">
+              <div class="col-md-6">${input('Full name', 'fullName', 'text', d.name)}</div>
+              <div class="col-md-6">${input('Phone', 'phone', 'tel', d.phone)}</div>
+              <div class="col-md-6">${input('Email', 'email', 'email', d.email === '—' ? '' : d.email, false)}</div>
+              <div class="col-md-6">${input('National ID', 'nationalId', 'text', d.nationalId || '', false)}</div>
+              <div class="col-12">${input('Home address', 'homeAddress', 'text', d.homeAddress || '', false)}</div>
+              <div class="col-md-4">${select('Vehicle type', 'vehicleType', ['taxi', 'boda', 'bajaji'], ['taxi','boda','bajaji'].includes(vType) ? vType : 'taxi')}</div>
+              <div class="col-md-4">${input('Plate number', 'plateNumber', 'text', d.plate === '—' ? '' : d.plate)}</div>
+              <div class="col-md-4">${input('Color', 'color', 'text', d.color || '', false)}</div>
+              <div class="col-md-4">${input('Make', 'make', 'text', d.make || '', false)}</div>
+              <div class="col-md-4">${input('Model', 'model', 'text', d.model || '', false)}</div>
+              <div class="col-md-4">${input('Year', 'year', 'number', d.year || '', false)}</div>
+              <div class="col-md-6">${select('Application status', 'applicationStatus', ['pending', 'under_review', 'active', 'rejected'], d.status)}</div>
+            </div>
           </form>`,
           `<button class="btn btn-primary" data-flow-submit="update-driver" data-id="${id}">Save changes</button>`);
         break;
       }
+      
+      case 'view-driver': {
+        try {
+          const detail = await API.get(`/admin/drivers/${id}`);
+          const p = detail.profile || detail;
+          const docs = detail.documents || [];
+          const appStatus = p.application_status || p.applicationStatus || '—';
+          const rejectReason = p.rejection_reason || p.rejectionReason || '';
+          const docsHtml = docs.length
+            ? docs.map(doc => {
+                const dtype = doc.document_type || doc.documentType || doc.type || 'Document';
+                const st = doc.status || 'pending';
+                const url = doc.url || '#';
+                const rr = doc.rejection_reason || doc.rejectionReason || '';
+                return `<div class="border rounded p-2 mb-2 d-flex justify-content-between align-items-start gap-2">
+                  <div>
+                    <div class="fw-semibold">${esc(dtype.replace(/_/g,' '))}</div>
+                    <div class="small text-muted">${statusBadge(st)}${rr ? ` · <span class="text-danger">${esc(rr)}</span>` : ''}</div>
+                    <a href="${esc(url)}" target="_blank" rel="noopener" class="small">Open file</a>
+                  </div>
+                  <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-success" data-action="doc-status" data-id="${doc.id}" data-status="approved">Approve</button>
+                    <button type="button" class="btn btn-outline-danger" data-action="doc-status" data-id="${doc.id}" data-status="rejected">Reject</button>
+                  </div>
+                </div>`;
+              }).join('')
+            : '<p class="text-muted mb-0">No documents uploaded for this driver.</p>';
+          const vType = p.vehicleType || p.type || '—';
+          const vPlate = p.plateNumber || p.plate_number || '—';
+          const vMake = p.make || '—';
+          const vModel = p.model || '—';
+          const vColor = p.color || '—';
+          const vYear = p.year || p.model_year || p.modelYear || '—';
+          const homeAddr = p.home_address || p.homeAddress || '—';
+          const natId = p.national_id || p.nationalId || '—';
+          openModal('DRIVER DETAILS', `${esc(p.full_name || p.fullName || 'Driver')} · ${esc(p.driver_code || p.driverCode || id)}`,
+            `<div class="mb-3">
+              <h6 class="fw-bold mb-2">Personal</h6>
+              <div class="row g-2 small mb-3">
+                <div class="col-md-6"><span class="text-muted">Full name</span><div class="fw-semibold">${esc(p.full_name || p.fullName || '—')}</div></div>
+                <div class="col-md-6"><span class="text-muted">Driver code</span><div>${esc(p.driver_code || p.driverCode || '—')}</div></div>
+                <div class="col-md-6"><span class="text-muted">Phone</span><div>${esc(p.phone || '—')}</div></div>
+                <div class="col-md-6"><span class="text-muted">Email</span><div>${esc(p.email || '—')}</div></div>
+                <div class="col-md-6"><span class="text-muted">National ID</span><div>${esc(natId)}</div></div>
+                <div class="col-md-6"><span class="text-muted">Home address</span><div>${esc(homeAddr)}</div></div>
+                <div class="col-md-6"><span class="text-muted">Application status</span><div>${statusBadge(appStatus)}</div></div>
+                <div class="col-md-6"><span class="text-muted">Account status</span><div>${statusBadge(p.status || '—')}</div></div>
+                ${rejectReason ? `<div class="col-12"><span class="text-muted">Rejection reason</span><div class="text-danger">${esc(rejectReason)}</div></div>` : ''}
+              </div>
+              <h6 class="fw-bold mb-2">Vehicle</h6>
+              <div class="row g-2 small mb-3">
+                <div class="col-md-4"><span class="text-muted">Type</span><div class="fw-semibold text-capitalize">${esc(vType)}</div></div>
+                <div class="col-md-4"><span class="text-muted">Plate number</span><div class="fw-semibold">${esc(vPlate)}</div></div>
+                <div class="col-md-4"><span class="text-muted">Color</span><div>${esc(vColor)}</div></div>
+                <div class="col-md-4"><span class="text-muted">Make</span><div>${esc(vMake)}</div></div>
+                <div class="col-md-4"><span class="text-muted">Model</span><div>${esc(vModel)}</div></div>
+                <div class="col-md-4"><span class="text-muted">Year</span><div>${esc(vYear)}</div></div>
+              </div>
+            </div>
+            <h6 class="fw-bold">Documents</h6>
+            ${docsHtml}`,
+            `<button class="btn btn-success" data-action="driver-status" data-id="${id}" data-status="active"><i class="bi bi-check-lg me-1"></i>Activate</button>
+             <button class="btn btn-danger" data-action="reject-driver" data-id="${id}"><i class="bi bi-x-lg me-1"></i>Reject</button>`
+          );
+          window.__ZENJIGO_DETAIL_ID = id;
+        } catch (err) {
+          toast(err.message || 'Failed to load driver', 'danger');
+        }
+        break;
+      }
+      case 'reject-driver': {
+        openModal('REJECT DRIVER', `Reject driver #${id}`,
+          `<form id="flowForm" class="professional-form">
+            <p class="text-muted small">Provide a clear reason. The driver will see this message on their profile.</p>
+            <div class="mb-3">
+              <label class="form-label">Rejection reason <span class="text-danger">*</span></label>
+              <textarea name="reason" class="form-control" rows="4" required placeholder="e.g. License photo is unclear / Insurance expired / National ID does not match"></textarea>
+            </div>
+          </form>`,
+          `<button class="btn btn-danger" data-flow-submit="reject-driver" data-id="${id}"><i class="bi bi-x-lg me-1"></i>Confirm reject</button>`
+        );
+        break;
+      }
+      case 'doc-status': {
+        const docStatus = btn.dataset.status;
+        let reason = '';
+        if (docStatus === 'rejected') {
+          reason = prompt('Rejection reason for this document:') || '';
+          if (!reason.trim()) { toast('Rejection reason is required', 'danger'); return; }
+        }
+        try {
+          await API.patch(`/admin/documents/${id}/status`, { status: docStatus, reason });
+          toast(`Document ${docStatus}`);
+          // Refresh detail if open
+          const detailBtn = document.querySelector(`[data-action="view-driver"][data-id="${window.__ZENJIGO_DETAIL_ID || ''}"]`);
+          if (window.__ZENJIGO_DETAIL_ID) {
+            const reopen = document.querySelector(`[data-action="view-driver"][data-id="${window.__ZENJIGO_DETAIL_ID}"]`);
+            // re-fetch via synthetic click path
+            const detail = await API.get(`/admin/drivers/${window.__ZENJIGO_DETAIL_ID}`);
+            toast('Document updated');
+            await afterMutation('drivers');
+          } else {
+            await afterMutation('drivers');
+          }
+        } catch (err) {
+          toast(err.message || 'Failed', 'danger');
+        }
+        break;
+      }
       case 'driver-status': {
-        if (!confirm(`Set driver #${id} status to "${status}"?`)) return;
-        await API.patch(`/admin/drivers/${id}/status`, { status });
+        let reason = '';
+        if (status === 'suspended' || status === 'rejected') {
+          reason = prompt(`Reason for ${status} (required, shown to the driver):`) || '';
+          if (!reason.trim()) { toast('A reason is required', 'danger'); return; }
+        } else if (!confirm(`Set driver #${id} status to "${status}"?`)) {
+          return;
+        }
+        await API.patch(`/admin/drivers/${id}/status`, { status, reason: reason || undefined });
         toast('Driver status updated');
+        // close any open modal
+        try { bootstrap.Modal.getInstance(document.getElementById('genericModal'))?.hide(); } catch (_) {}
         await afterMutation('drivers');
         break;
       }
+      
+      case 'restore-archive': {
+        if (!confirm('Restore this user to live data with all their previous information?')) return;
+        try {
+          await API.post(`/admin/archives/${id}/restore`, {});
+          toast('User restored');
+          await afterMutation('archive');
+        } catch (err) {
+          toast(err.message || 'Restore failed', 'danger');
+        }
+        break;
+      }
+      case 'permanent-delete-archive': {
+        if (!confirm('PERMANENTLY delete this archived user and all their data? This cannot be undone.')) return;
+        if (!confirm('Type confirmation: permanently delete? Click OK to proceed.')) return;
+        try {
+          await API.del(`/admin/archives/${id}`);
+          toast('Archived user permanently deleted');
+          await afterMutation('archive');
+        } catch (err) {
+          toast(err.message || 'Delete failed', 'danger');
+        }
+        break;
+      }
       case 'delete-driver': {
-        if (!confirm('Deactivate this driver? They will be suspended.')) return;
+        if (!confirm('Archive this driver? They will be removed from live data and cannot log in. You can restore them later from Archive.')) return;
         await API.del(`/admin/drivers/${id}`);
-        toast('Driver deactivated');
+        toast('Driver archived');
         await afterMutation('drivers');
         break;
       }
@@ -131,9 +280,9 @@ document.addEventListener('click', async (e) => {
         break;
       }
       case 'delete-rider': {
-        if (!confirm('Deactivate this rider?')) return;
+        if (!confirm('Archive this rider? They will be removed from live data and cannot log in. You can restore them later from Archive.')) return;
         await API.del(`/admin/riders/${id}`);
-        toast('Rider deactivated');
+        toast('Rider archived');
         await afterMutation('riders');
         break;
       }
@@ -166,9 +315,9 @@ document.addEventListener('click', async (e) => {
         break;
       }
       case 'delete-admin': {
-        if (!confirm('Deactivate this admin account?')) return;
+        if (!confirm('Archive this admin? They will be removed from live data and cannot log in.')) return;
         await API.del(`/admin/admins/${id}`);
-        toast('Admin deactivated');
+        toast('Admin archived');
         await afterMutation('admins');
         break;
       }
@@ -265,13 +414,8 @@ document.addEventListener('click', async (e) => {
       /* Notifications */
       case 'send-notification': {
         openModal('NOTIFICATION', 'Send notification',
-          `<form id="flowForm">
-            ${input('User ID', 'userId', 'number')}
-            ${input('Title', 'title')}
-            ${textarea('Body', 'body')}
-            ${input('Type', 'type', 'text', 'admin', false)}
-          </form>`,
-          `<button class="btn btn-primary" data-flow-submit="send-notification">Send</button>`);
+          `<form id="flowForm" class="professional-form notification-form"><div class="form-intro"><span class="form-icon"><i class="bi bi-bell"></i></span><div><h6>Compose a notification</h6><p>Choose a registered driver or rider, then write a clear message.</p></div></div><div class="mb-3"><label class="form-label" for="notificationUser">Recipient</label><select id="notificationUser" class="form-select" name="userId" required><option value="">Select a user…</option>${userOptions()}</select><div class="form-text">${(D.riders || []).length + (D.drivers || []).length} available user records loaded.</div></div>${input('Notification title', 'title')}<div class="mb-3"><label class="form-label">Message</label><textarea class="form-control" name="body" rows="4" maxlength="1000" placeholder="Write a helpful, concise message…" required></textarea><div class="form-text">Keep the message clear and actionable.</div></div>${select('Category', 'type', ['admin', 'system', 'ride', 'payment', 'safety'], 'admin')}</form>`,
+          `<button class="btn btn-primary" data-flow-submit="send-notification"><i class="bi bi-send me-1"></i>Send notification</button>`);
         break;
       }
     }
@@ -292,6 +436,9 @@ document.addEventListener('click', async (e) => {
   const action = btn.dataset.flowSubmit;
   const id = btn.dataset.id;
   btn.disabled = true;
+  btn.classList.add('is-loading');
+  const originalButtonHtml = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Processing…';
 
   try {
     switch (action) {
@@ -309,13 +456,26 @@ document.addEventListener('click', async (e) => {
       case 'update-driver':
         await API.patch(`/admin/drivers/${id}`, {
           fullName: data.fullName, phone: data.phone, email: data.email || null,
-          vehicleType: data.vehicleType, plateNumber: data.plateNumber, make: data.make || null,
+          nationalId: data.nationalId || null, homeAddress: data.homeAddress || null,
+          vehicleType: data.vehicleType, plateNumber: data.plateNumber,
+          make: data.make || null, model: data.model || null, color: data.color || null,
+          year: data.year ? Number(data.year) : null,
           applicationStatus: data.applicationStatus
         });
         toast('Driver updated');
         closeModal();
         await afterMutation('drivers');
         break;
+
+      case 'reject-driver': {
+        const reason = (data.reason || '').trim();
+        if (!reason) { toast('Rejection reason is required', 'danger'); return; }
+        await API.patch(`/admin/drivers/${id}/status`, { status: 'rejected', reason });
+        toast('Driver rejected');
+        closeModal();
+        await afterMutation('drivers');
+        break;
+      }
 
       case 'create-rider':
         await API.post('/admin/riders', {
@@ -405,7 +565,7 @@ document.addEventListener('click', async (e) => {
 
       case 'send-notification':
         await API.post('/admin/notifications', {
-          userId: Number(data.userId), title: data.title, body: data.body, type: data.type || 'admin'
+          userId: Number(data.userId), title: data.title.trim(), body: data.body.trim(), type: data.type || 'admin'
         });
         toast('Notification sent');
         closeModal();
@@ -416,6 +576,8 @@ document.addEventListener('click', async (e) => {
     toast(err.message, 'danger');
   } finally {
     btn.disabled = false;
+    btn.classList.remove('is-loading');
+    btn.innerHTML = originalButtonHtml;
   }
 });
 })();

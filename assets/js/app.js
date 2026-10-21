@@ -98,13 +98,11 @@ async function signOut() {
 /* ---------- Data sync ---------- */
 async function syncAll() {
   try {
-    const [
-      dashboard, rides, drivers, riders, admins, promos, payments, payouts,
-      tours, parcels, notifications, conversations, audit, commissions, finance, settings, commissionSettings
-    ] = await Promise.all([
+    const [dashboard, rides, drivers, archives, riders, admins, promos, payments, payouts, tours, parcels, notifications, conversations, audit, commissions, finance, settings, commissionSettings] = await Promise.all([
       API.get('/admin/dashboard').catch(() => ({})),
       API.get('/admin/rides').catch(() => []),
       API.get('/admin/drivers').catch(() => []),
+      API.get('/admin/archives').catch(() => []),
       API.get('/admin/riders').catch(() => []),
       API.get('/admin/admins').catch(() => []),
       API.get('/admin/promos').catch(() => []),
@@ -124,6 +122,7 @@ async function syncAll() {
     D.dashboard = dashboard || {};
     D.rides = (rides || []).map(mapRide);
     D.drivers = (drivers || []).map(mapDriver);
+    D.archives = (archives || []).map(mapArchive);
     D.riders = (riders || []).map(mapRider);
     D.admins = (admins || []).map(mapAdmin);
     D.promos = (promos || []).map(mapPromo);
@@ -132,6 +131,7 @@ async function syncAll() {
     D.tours = (tours || []).map(mapTour);
     D.parcels = (parcels || []).map(mapParcel);
     D.notifications = notifications || [];
+    updateIndicators();
     D.conversations = conversations || [];
     D.audit = audit || [];
     D.commissions = commissions || [];
@@ -157,16 +157,37 @@ function mapRide(r) {
     distance: (r.estimated_distance_km || 0) + ' km'
   };
 }
+
+function mapArchive(a) {
+  return {
+    id: a.id,
+    originalUserId: a.originalUserId || a.original_user_id,
+    role: a.role || '—',
+    name: a.fullName || a.full_name || '—',
+    phone: a.phone || '—',
+    email: a.email || '—',
+    reason: a.archiveReason || a.archive_reason || '',
+    archivedAt: a.archivedAt || a.archived_at || '',
+    archivedBy: a.archivedBy || a.archived_by || null
+  };
+}
+
 function mapDriver(d) {
   return {
     id: d.id, dbId: d.id, code: d.driverCode || d.id,
-    name: d.fullName, phone: d.phone, email: d.email || '—',
-    vehicle: d.vehicleType || '—', plate: d.plateNumber || '—',
-    type: (d.vehicleType || '—').replace(/^./, (x) => x.toUpperCase()),
-    rating: Number(d.rating || 0).toFixed(1),
-    rides: d.totalRides || 0, earnings: d.totalEarnings || 0,
+    name: d.fullName || d.name || '—', phone: d.phone || '—', email: d.email || '—',
+    type: d.vehicleType || d.type || '—', plate: d.plateNumber || d.plate || '—',
+    rides: d.totalRides ?? d.rides ?? 0, rating: Number(d.rating || 0).toFixed(1),
     status: d.applicationStatus || d.status, online: !!d.online,
-    userStatus: d.status, make: d.make || '', model: d.model || '', color: d.color || ''
+    userStatus: d.status,
+    make: d.make || d.vehicleMake || '',
+    model: d.model || d.vehicleModel || '',
+    color: d.color || d.vehicleColor || '',
+    year: d.year || d.modelYear || d.model_year || '',
+    nationalId: d.nationalId || d.national_id || '',
+    homeAddress: d.homeAddress || d.home_address || '',
+    rejectionReason: d.rejectionReason || d.rejection_reason || '',
+    approvedAt: d.approvedAt || d.approved_at || null
   };
 }
 function mapRider(r) {
@@ -218,6 +239,12 @@ function mapParcel(p) {
   };
 }
 
+function updateIndicators() {
+  const counts = { live: (D.rides || []).filter(r => !/completed|cancelled|canceled|failed/i.test(r.status || '')).length, drivers: (D.drivers || []).filter(d => /pending|review/i.test(d.status || '')).length, withdrawals: (D.payouts || []).filter(p => /pending/i.test(p.status || '')).length, chat: (D.conversations || []).filter(c => Number(c.unreadCount || c.unread_count || 0) > 0).length, reports: (D.rides || []).filter(r => /cancel|failed|incident|dispute/i.test(r.status || '')).length, notifications: (D.notifications || []).filter(n => !(n.read_at || n.readAt)).length };
+  Object.entries(counts).forEach(([page, count]) => { const link = document.querySelector(`.nav-link[data-page="${page}"]`); if (!link) return; let badgeEl = link.querySelector('.nav-badge'); if (count > 0) { if (!badgeEl) { badgeEl = document.createElement('em'); badgeEl.className = 'nav-badge'; link.appendChild(badgeEl); } badgeEl.textContent = count > 99 ? '99+' : String(count); } else if (badgeEl) badgeEl.remove(); });
+  const bell = document.querySelector('.notification-btn span'); if (bell) { const unread = (D.notifications || []).filter(n => !(n.read_at || n.readAt)).length; bell.textContent = unread > 0 ? (unread > 99 ? '99+' : String(unread)) : ''; bell.classList.toggle('has-count', unread > 0); bell.setAttribute('aria-label', `${unread} notifications`); }
+}
+
 /* ---------- Navigation ---------- */
 let currentPage = 'dashboard';
 
@@ -236,7 +263,10 @@ const PAGE_META = {
   chat: ['Support', 'Conversations and support threads'],
   audit: ['Audit log', 'Administrative actions trail'],
   pricing: ['Pricing & commission', 'Fare and commission configuration'],
-  settings: ['Settings', 'Platform configuration']
+  settings: ['Settings', 'Platform configuration'],
+  archive: ['Archive', 'Archived users — restore or permanently delete'],
+  live: ['Live Operations', 'Current rides, drivers and operational activity'],
+  reports: ['Reports & Safety', 'Review operational activity and safety indicators']
 };
 
 function renderPage(page) {
@@ -249,6 +279,7 @@ function renderPage(page) {
   if (!content) return;
   const fn = window.AdminPages?.[page];
   content.innerHTML = fn ? fn() : `<div class="card-x p-4"><p>Page not available.</p></div>`;
+  updateIndicators();
   bindPageEvents();
 }
 window.renderPage = renderPage;
@@ -280,6 +311,15 @@ function toolbar(searchId, extra = '') {
 
 /* ---------- Pages ---------- */
 window.AdminPages = {
+  live() {
+    return toolbar('liveSearch', '<button class="btn btn-outline-primary" id="btnRefreshLive"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') + tableWrap('Live ride operations', '', '<th>Ride</th><th>Rider</th><th>Driver</th><th>Route</th><th>Status</th><th>Started</th>', D.rides.filter(r => !/completed|cancelled|canceled|failed/i.test(r.status || '')).map(r => `<tr data-search="${esc((r.id+' '+r.rider+' '+r.driver+' '+r.from+' '+r.to+' '+r.status).toLowerCase())}"><td><b>${esc(r.id)}</b></td><td>${esc(r.rider)}</td><td>${esc(r.driver)}</td><td>${esc(r.from)} → ${esc(r.to)}</td><td>${badge(r.status)}</td><td>${esc(r.time)}</td></tr>`).join(''), 'No active rides right now.');
+  },
+  reports() {
+    const active = D.rides.filter(r => !/completed|cancelled|canceled|failed/i.test(r.status || '')).length;
+    const pending = D.drivers.filter(d => /pending|review/i.test(d.status || '')).length;
+    const suspended = D.riders.filter(r => /suspended|restricted/i.test(r.status || '')).length + D.drivers.filter(d => /suspended|rejected/i.test(d.status || '')).length;
+    return `<div class="row g-3 mb-3"><div class="col-12 col-md-4"><div class="card-x p-3"><small class="text-muted">Active rides</small><h3>${active}</h3></div></div><div class="col-12 col-md-4"><div class="card-x p-3"><small class="text-muted">Driver applications to review</small><h3>${pending}</h3></div></div><div class="col-12 col-md-4"><div class="card-x p-3"><small class="text-muted">Restricted accounts</small><h3>${suspended}</h3></div></div></div>` + toolbar('reportsSearch') + tableWrap('Safety and operational review', '', '<th>Category</th><th>Reference</th><th>Person / detail</th><th>Status</th><th>Time</th>', [...D.drivers.filter(d => /pending|review|suspended|rejected/i.test(d.status || '')).map(d => ({category:'Driver review',id:d.id,name:d.name,status:d.status,time:'—'})), ...D.rides.filter(r => /cancel|failed|incident|dispute/i.test(r.status || '')).map(r => ({category:'Ride follow-up',id:r.id,name:(r.rider+' / '+r.driver),status:r.status,time:r.time}))].map(x => `<tr data-search="${esc((x.category+' '+x.id+' '+x.name+' '+x.status).toLowerCase())}"><td>${esc(x.category)}</td><td>${esc(x.id)}</td><td>${esc(x.name)}</td><td>${badge(x.status)}</td><td>${esc(x.time)}</td></tr>`).join(''), 'No review items found in the currently available records.');
+  },
   dashboard() {
     const d = D.dashboard || {};
     const cards = [
@@ -311,21 +351,46 @@ window.AdminPages = {
         <td class="small">${esc(r.from)} → ${esc(r.to)}</td><td>${money(r.fare)}</td><td>${badge(r.status)}</td><td class="small">${esc(r.time)}</td></tr>`).join(''));
   },
 
+
+  archive() {
+    const rows = D.archives || [];
+    return toolbar('archiveSearch',
+      `<button class="btn btn-sm btn-outline-primary" id="btnRefreshArchive"><i class="bi bi-arrow-clockwise"></i> Refresh</button>`)
+      + tableWrap('Archived users', 'Users removed from live data. Restore brings them back exactly; permanent delete cannot be undone.',
+        '<th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>Reason</th><th>Archived</th><th></th>',
+        rows.map((a) => `<tr data-search="${esc((a.name + a.role + a.phone + (a.email||'') + (a.reason||'')).toLowerCase())}">
+          <td>${userCell(a.name, '#' + a.originalUserId, 'gray')}</td>
+          <td>${badge(a.role)}</td>
+          <td>${esc(a.phone)}</td>
+          <td class="small">${esc(a.email)}</td>
+          <td class="small">${esc(a.reason || '—')}</td>
+          <td class="small">${esc(a.archivedAt ? new Date(a.archivedAt).toLocaleString() : '—')}</td>
+          <td class="text-nowrap">
+            <button class="btn btn-sm btn-outline-success" data-action="restore-archive" data-id="${a.id}" title="Restore user"><i class="bi bi-arrow-counterclockwise"></i> Restore</button>
+            <button class="btn btn-sm btn-outline-danger" data-action="permanent-delete-archive" data-id="${a.id}" title="Permanently delete"><i class="bi bi-trash"></i></button>
+          </td></tr>`).join('') || '', 'No archived users.');
+  },
+
   drivers() {
     return toolbar('driverSearch',
       `<button class="btn btn-sm btn-primary" data-action="add-driver"><i class="bi bi-plus-lg"></i> Add driver</button>
        <button class="btn btn-sm btn-outline-primary" id="btnRefreshDrivers"><i class="bi bi-arrow-clockwise"></i></button>`)
       + tableWrap('Drivers', '',
-        '<th>Driver</th><th>Phone</th><th>Vehicle</th><th>Plate</th><th>Rides</th><th>Rating</th><th>Status</th><th>Online</th><th></th>',
-        D.drivers.map((d) => `<tr data-search="${esc((d.name + d.phone + d.status + d.plate).toLowerCase())}">
-          <td>${userCell(d.name, d.code, 'green')}</td><td>${esc(d.phone)}</td><td>${esc(d.type)}</td><td>${esc(d.plate)}</td>
-          <td>${d.rides}</td><td>${d.rating}</td><td>${badge(d.status)}</td>
+        '<th>Driver</th><th>Phone</th><th>Email</th><th>Type</th><th>Plate</th><th>Make / Model</th><th>Color</th><th>Year</th><th>Rides</th><th>Rating</th><th>Status</th><th>Online</th><th></th>',
+        D.drivers.map((d) => `<tr data-search="${esc((d.name + d.phone + (d.email||'') + d.status + d.plate + (d.make||'') + (d.model||'')).toLowerCase())}">
+          <td>${userCell(d.name, d.code, 'green')}</td><td>${esc(d.phone)}</td><td class="small">${esc(d.email)}</td>
+          <td>${esc(d.type)}</td><td>${esc(d.plate)}</td>
+          <td class="small">${esc([d.make, d.model].filter(Boolean).join(' ') || '—')}</td>
+          <td class="small">${esc(d.color || '—')}</td><td class="small">${esc(d.year || '—')}</td>
+          <td>${d.rides}</td><td>${d.rating}</td><td>${badge(d.status)}${d.rejectionReason ? `<div class="small text-danger mt-1" title="${esc(d.rejectionReason)}">${esc(String(d.rejectionReason).slice(0, 40))}${String(d.rejectionReason).length > 40 ? '…' : ''}</div>` : ''}</td>
           <td>${d.online ? '<span class="text-success">● Online</span>' : '<span class="text-muted">○ Offline</span>'}</td>
           <td class="text-nowrap">
+            <button class="btn btn-sm btn-outline-primary" data-action="view-driver" data-id="${d.id}" title="View documents & details"><i class="bi bi-eye"></i></button>
             <button class="btn btn-sm btn-outline-secondary" data-action="edit-driver" data-id="${d.id}" title="Edit"><i class="bi bi-pencil"></i></button>
             <button class="btn btn-sm btn-outline-success" data-action="driver-status" data-id="${d.id}" data-status="active" title="Approve/Activate"><i class="bi bi-check-lg"></i></button>
+            <button class="btn btn-sm btn-outline-danger" data-action="reject-driver" data-id="${d.id}" title="Reject with reason"><i class="bi bi-x-lg"></i></button>
             <button class="btn btn-sm btn-outline-warning" data-action="driver-status" data-id="${d.id}" data-status="suspended" title="Suspend"><i class="bi bi-pause"></i></button>
-            <button class="btn btn-sm btn-outline-danger" data-action="delete-driver" data-id="${d.id}" title="Deactivate"><i class="bi bi-trash"></i></button>
+            <button class="btn btn-sm btn-outline-danger" data-action="delete-driver" data-id="${d.id}" title="Archive user"><i class="bi bi-trash"></i></button>
           </td></tr>`).join(''));
   },
 
@@ -434,17 +499,17 @@ window.AdminPages = {
       `<button class="btn btn-sm btn-primary" data-action="send-notification"><i class="bi bi-plus-lg"></i> Send</button>`)
       + tableWrap('Notifications', '',
         '<th>User</th><th>Title</th><th>Body</th><th>Type</th><th>Time</th>',
-        (D.notifications || []).map((n) => `<tr>
-          <td>${esc(n.userName || n.user_id)}</td><td>${esc(n.title)}</td>
+        (D.notifications || []).map((n) => { const isRead = !!(n.read_at || n.readAt); return `<tr class="notification-row ${isRead ? 'is-read' : 'is-unread'}" data-notification-id="${esc(n.id)}" data-search="${esc((n.userName+' '+n.user_id+' '+n.title+' '+n.body+' '+n.type).toLowerCase())}" tabindex="0" role="button" aria-label="${isRead ? 'Read' : 'Mark as read'} notification: ${esc(n.title)}">
+          <td>${esc(n.userName || n.user_id)} ${isRead ? '' : '<span class="notification-unread-dot" title="Unread"></span>'}</td><td>${esc(n.title)} ${isRead ? '' : '<span class="badge text-bg-primary ms-1">Unread</span>'}</td>
           <td class="small">${esc(n.body)}</td><td>${esc(n.type)}</td>
-          <td class="small">${n.created_at ? new Date(n.created_at).toLocaleString() : '—'}</td>
-        </tr>`).join(''));
+          <td class="small">${n.created_at || n.createdAt ? new Date(n.created_at || n.createdAt).toLocaleString() : '—'}</td>
+        </tr>`; }).join(''));
   },
 
   chat() {
     return tableWrap('Conversations', '',
       '<th>ID</th><th>Type</th><th>Messages</th><th>Updated</th>',
-      (D.conversations || []).map((c) => `<tr>
+      (D.conversations || []).map((c) => `<tr data-search="${esc((c.id+' '+c.type+' '+c.context_type).toLowerCase())}">
         <td>${c.id}</td><td>${esc(c.type || c.context_type || '—')}</td>
         <td>${c.messageCount || 0}</td>
         <td class="small">${c.updated_at ? new Date(c.updated_at).toLocaleString() : '—'}</td>
@@ -478,8 +543,8 @@ window.AdminPages = {
   settings() {
     return `<div class="card-x p-4">
       <h6>Platform settings</h6>
-      <p class="text-muted small">Stored in MySQL <code>app_settings</code>. Values below are live from the API.</p>
-      <pre class="bg-light p-3 rounded small" style="max-height:400px;overflow:auto">${esc(JSON.stringify(D.settings || {}, null, 2))}</pre>
+      <p class="settings-api-note small">Stored in MySQL <code>app_settings</code>. Values below are live from the API.</p>
+      <pre class="settings-json-preview p-3 rounded small" style="max-height:400px;overflow:auto">${esc(JSON.stringify(D.settings || {}, null, 2))}</pre>
       <div class="mt-3">
         <label class="form-label">API base URL (saved in browser)</label>
         <div class="input-group" style="max-width:480px">
@@ -504,6 +569,26 @@ function bindPageEvents() {
     };
   });
 
+  $$('#content tr[data-notification-id]').forEach((row) => {
+    const markRead = async () => {
+      const item = (D.notifications || []).find(n => String(n.id) === String(row.dataset.notificationId));
+      if (!item || item.read_at || item.readAt || row.dataset.busy === '1') return;
+      row.dataset.busy = '1'; row.classList.add('is-marking-read');
+      try {
+        await API.patch(`/admin/notifications/${encodeURIComponent(item.id)}/read`, {});
+        item.read_at = new Date().toISOString(); item.readAt = item.read_at;
+        updateIndicators(); renderPage('notifications');
+        toast('Notification marked as read');
+      } catch (err) {
+        row.classList.remove('is-marking-read'); delete row.dataset.busy;
+        toast(err.message || 'Could not mark notification as read', 'error');
+      }
+    };
+    row.addEventListener('click', markRead);
+    row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); markRead(); } });
+  });
+
+  $('#btnRefreshLive')?.addEventListener('click', async (e) => { const state = loadBtn(e.currentTarget); try { await syncAll(); renderPage('live'); } finally { state.done(); } });
   $('#btnRefreshRides')?.addEventListener('click', async () => { await syncAll(); renderPage('rides'); toast('Rides refreshed'); });
   $('#btnRefreshDrivers')?.addEventListener('click', async () => { await syncAll(); renderPage('drivers'); toast('Drivers refreshed'); });
   $('#btnRefreshRiders')?.addEventListener('click', async () => { await syncAll(); renderPage('riders'); toast('Riders refreshed'); });
@@ -561,7 +646,7 @@ function initAuthUI() {
         await enterApp();
         toast('Signed in successfully');
       } else {
-        $('#otpEmailLabel') && ($('#otpEmailLabel').textContent = d.maskedPhone || email);
+        $('#otpEmailLabel') && ($('#otpEmailLabel').textContent = d.maskedEmail || email);
         showAuth('otp');
         $('#loginOtpInputs input')?.focus();
         toast('Security OTP sent');
@@ -604,9 +689,10 @@ function initAuthUI() {
   $('#openSidebar')?.addEventListener('click', () => $('#adminApp')?.classList.add('sidebar-open'));
   $('#sidebarBackdrop')?.addEventListener('click', () => $('#adminApp')?.classList.remove('sidebar-open'));
 
-  $('#themeBtn')?.addEventListener('click', () => {
-    document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-  });
+  const applyTheme = (theme) => { document.documentElement.dataset.theme = theme; document.documentElement.setAttribute('data-bs-theme', theme); localStorage.setItem('zenjigo-theme', theme); const icon = $('#themeBtn i'); if (icon) icon.className = 'bi ' + (theme === 'dark' ? 'bi-sun' : 'bi-moon-stars'); };
+  applyTheme(localStorage.getItem('zenjigo-theme') || 'light');
+  $('#themeBtn')?.addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+  $('#globalSearch')?.addEventListener('input', (e) => { const q = e.target.value.toLowerCase().trim(); $$('#content tbody tr').forEach(tr => { const hay = (tr.getAttribute('data-search') || tr.textContent).toLowerCase(); tr.classList.toggle('d-none', Boolean(q) && !hay.includes(q)); }); });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
