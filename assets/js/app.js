@@ -312,7 +312,16 @@ function toolbar(searchId, extra = '') {
 /* ---------- Pages ---------- */
 window.AdminPages = {
   live() {
-    return toolbar('liveSearch', '<button class="btn btn-outline-primary" id="btnRefreshLive"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') + tableWrap('Live ride operations', '', '<th>Ride</th><th>Rider</th><th>Driver</th><th>Route</th><th>Status</th><th>Started</th>', D.rides.filter(r => !/completed|cancelled|canceled|failed/i.test(r.status || '')).map(r => `<tr data-search="${esc((r.id+' '+r.rider+' '+r.driver+' '+r.from+' '+r.to+' '+r.status).toLowerCase())}"><td><b>${esc(r.id)}</b></td><td>${esc(r.rider)}</td><td>${esc(r.driver)}</td><td>${esc(r.from)} → ${esc(r.to)}</td><td>${badge(r.status)}</td><td>${esc(r.time)}</td></tr>`).join(''), 'No active rides right now.');
+    const active = D.rides.filter(r => !/completed|cancelled|canceled|failed/i.test(r.status || ''));
+    return toolbar('liveSearch', '<button class="btn btn-outline-primary" id="btnRefreshLive"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') +
+      `<div class="card-x mb-3"><div class="card-head d-flex justify-content-between align-items-center"><h6 class="mb-0">Live map</h6><small class="text-muted" id="liveMapMeta">Loading…</small></div>
+        <div id="adminLiveMap" style="height:380px;width:100%;background:#e8f0ee;border-radius:0 0 12px 12px;"></div>
+        <div class="p-2 small text-muted border-top"><span class="me-3"><i class="bi bi-circle-fill text-success me-1"></i>Online drivers</span>
+        <span class="me-3"><i class="bi bi-geo-alt-fill text-primary me-1"></i>Active ride pickup</span>
+        <span><i class="bi bi-flag-fill text-danger me-1"></i>Destination</span></div></div>` +
+      tableWrap('Live ride operations', '', '<th>Ride</th><th>Rider</th><th>Driver</th><th>Route</th><th>Status</th><th>Started</th>',
+        active.map(r => `<tr data-search="${esc((r.id+' '+r.rider+' '+r.driver+' '+r.from+' '+r.to+' '+r.status).toLowerCase())}"><td><b>${esc(r.id)}</b></td><td>${esc(r.rider)}</td><td>${esc(r.driver)}</td><td>${esc(r.from)} → ${esc(r.to)}</td><td>${badge(r.status)}</td><td>${esc(r.time)}</td></tr>`).join(''),
+        'No active rides right now.');
   },
   reports() {
     const active = D.rides.filter(r => !/completed|cancelled|canceled|failed/i.test(r.status || '')).length;
@@ -557,6 +566,89 @@ window.AdminPages = {
 };
 
 /* ---------- Event binding ---------- */
+
+let _adminLiveMap = null;
+let _adminLiveLayer = null;
+
+async function initAdminLiveMap() {
+  const el = document.getElementById('adminLiveMap');
+  if (!el || typeof L === 'undefined') return;
+  try {
+    if (_adminLiveMap) {
+      _adminLiveMap.remove();
+      _adminLiveMap = null;
+    }
+    const center = [-6.1659, 39.2026];
+    _adminLiveMap = L.map(el).setView(center, 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(_adminLiveMap);
+    _adminLiveLayer = L.layerGroup().addTo(_adminLiveMap);
+
+    let data = { rides: [], drivers: [] };
+    try {
+      data = await ZenjiGOAdminAPI.get('/admin/live-map');
+    } catch (e) {
+      console.warn('live-map', e);
+      // Fallback: use already-loaded D.rides / D.drivers without coords
+    }
+
+    const bounds = [];
+    const rides = data.rides || [];
+    const drivers = data.drivers || [];
+
+    drivers.forEach((d) => {
+      const lat = Number(d.lat ?? d.current_lat);
+      const lng = Number(d.lng ?? d.current_lng);
+      if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+      const m = L.circleMarker([lat, lng], { radius: 8, color: '#0d9488', fillColor: '#14b8a6', fillOpacity: 0.9, weight: 2 });
+      m.bindPopup(`<strong>${esc(d.fullName || d.name || 'Driver')}</strong><br>${esc(d.vehicleType || '')} ${esc(d.plateNumber || '')}<br>Online`);
+      m.addTo(_adminLiveLayer);
+      bounds.push([lat, lng]);
+    });
+
+    rides.forEach((r) => {
+      const plat = Number(r.pickupLat ?? r.pickup_lat);
+      const plng = Number(r.pickupLng ?? r.pickup_lng);
+      const dlat = Number(r.destinationLat ?? r.destination_lat);
+      const dlng = Number(r.destinationLng ?? r.destination_lng);
+      if (!Number.isNaN(plat) && !Number.isNaN(plng)) {
+        const m = L.marker([plat, plng]);
+        m.bindPopup(`<strong>Ride #${esc(r.id)}</strong><br>${esc(r.riderName || r.rider || '')}<br>${esc(r.pickupAddress || r.from || 'Pickup')}<br>${badge(r.status)}`);
+        m.addTo(_adminLiveLayer);
+        bounds.push([plat, plng]);
+      }
+      if (!Number.isNaN(dlat) && !Number.isNaN(dlng)) {
+        const m = L.circleMarker([dlat, dlng], { radius: 6, color: '#dc2626', fillColor: '#ef4444', fillOpacity: 0.85 });
+        m.bindPopup(`Destination · ${esc(r.destinationAddress || r.to || '')}`);
+        m.addTo(_adminLiveLayer);
+        bounds.push([dlat, dlng]);
+      }
+      // Driver position on active ride
+      const drLat = Number(r.driverLat ?? r.driver_lat);
+      const drLng = Number(r.driverLng ?? r.driver_lng);
+      if (!Number.isNaN(drLat) && !Number.isNaN(drLng)) {
+        const m = L.circleMarker([drLat, drLng], { radius: 7, color: '#1d4ed8', fillColor: '#3b82f6', fillOpacity: 0.9 });
+        m.bindPopup(`Driver on ride #${esc(r.id)}: ${esc(r.driverName || '')}`);
+        m.addTo(_adminLiveLayer);
+        bounds.push([drLat, drLng]);
+      }
+    });
+
+    if (bounds.length) {
+      try { _adminLiveMap.fitBounds(bounds, { padding: [32, 32], maxZoom: 14 }); } catch (_) {}
+    }
+    const meta = document.getElementById('liveMapMeta');
+    if (meta) meta.textContent = `${drivers.length} online drivers · ${rides.length} active rides`;
+    setTimeout(() => { try { _adminLiveMap.invalidateSize(); } catch (_) {} }, 200);
+  } catch (e) {
+    console.warn('initAdminLiveMap', e);
+    const meta = document.getElementById('liveMapMeta');
+    if (meta) meta.textContent = 'Map unavailable';
+  }
+}
+
 function bindPageEvents() {
   // Table filter (supports name, phone, email, plate, codes, and numeric IDs)
   $$('.toolbar input[id$="Search"]').forEach((inp) => {
@@ -592,7 +684,8 @@ function bindPageEvents() {
     row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); markRead(); } });
   });
 
-  $('#btnRefreshLive')?.addEventListener('click', async (e) => { const state = loadBtn(e.currentTarget); try { await syncAll(); renderPage('live'); } finally { state.done(); } });
+  $('#btnRefreshLive')?.addEventListener('click', async (e) => { const state = loadBtn(e.currentTarget); try { await syncAll(); renderPage('live'); initAdminLiveMap(); } finally { state.done(); } });
+  if (currentPage === 'live') initAdminLiveMap();
   $('#btnRefreshRides')?.addEventListener('click', async () => { await syncAll(); renderPage('rides'); toast('Rides refreshed'); });
   $('#btnRefreshDrivers')?.addEventListener('click', async () => { await syncAll(); renderPage('drivers'); toast('Drivers refreshed'); });
   $('#btnRefreshRiders')?.addEventListener('click', async () => { await syncAll(); renderPage('riders'); toast('Riders refreshed'); });
