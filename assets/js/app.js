@@ -98,7 +98,7 @@ async function signOut() {
 /* ---------- Data sync ---------- */
 async function syncAll() {
   try {
-    const [dashboard, rides, drivers, archives, riders, admins, promos, payments, payouts, tours, parcels, notifications, conversations, audit, commissions, finance, settings, commissionSettings] = await Promise.all([
+    const [dashboard, rides, drivers, archives, riders, admins, promos, payments, payouts, tours, parcels, notifications, conversations, audit, commissions, finance, settings, commissionSettings, fareSettings, cancelSettings] = await Promise.all([
       API.get('/admin/dashboard').catch(() => ({})),
       API.get('/admin/rides').catch(() => []),
       API.get('/admin/drivers').catch(() => []),
@@ -116,7 +116,9 @@ async function syncAll() {
       API.get('/admin/commissions').catch(() => []),
       API.get('/admin/driver-finance').catch(() => []),
       API.get('/admin/settings').catch(() => ({})),
-      API.get('/admin/commission-settings').catch(() => ({ cycleLimit: 60000, percent: 20 }))
+      API.get('/admin/commission-settings').catch(() => ({ cycleLimit: 60000, percent: 20 })),
+      API.get('/admin/fare-settings').catch(() => ({ baseFare: 2500, perKm: 900, perMinute: 150, bookingFee: 500, multipliers: { boda: 1, bajaji: 1.15, taxi: 1.5 }, currency: 'TZS' })),
+      API.get('/admin/cancel-settings').catch(() => ({ nearPickupKm: 1, percent: 20 }))
     ]);
 
     D.dashboard = dashboard || {};
@@ -138,6 +140,8 @@ async function syncAll() {
     D.finance = finance || [];
     D.settings = settings || {};
     D.commissionSettings = commissionSettings || { cycleLimit: 60000, percent: 20 };
+    D.fareSettings = fareSettings || { baseFare: 2500, perKm: 900, perMinute: 150, bookingFee: 500, multipliers: { boda: 1, bajaji: 1.15, taxi: 1.5 }, currency: 'TZS' };
+    D.cancelSettings = cancelSettings || { nearPickupKm: 1, percent: 20 };
   } catch (e) {
     toast('Backend sync failed: ' + e.message, 'danger');
   }
@@ -636,15 +640,61 @@ window.AdminPages = {
 
   pricing() {
     const cs = D.commissionSettings || {};
-    return `<div class="card-x p-4" style="max-width:520px">
-      <h6 class="mb-3">Commission & settlement</h6>
-      <form id="commissionForm">
-        <div class="mb-3"><label class="form-label">Settlement cycle limit (TZS)</label>
-          <input class="form-control" name="cycleLimit" type="number" value="${esc(cs.cycleLimit || 60000)}" required min="1"></div>
-        <div class="mb-3"><label class="form-label">ZenjiGO commission (%)</label>
-          <input class="form-control" name="percent" type="number" value="${esc(cs.percent || 20)}" required min="0" max="100" step="0.1"></div>
-        <button class="btn btn-primary" type="submit">Save settings</button>
-      </form>
+    const f = D.fareSettings || {};
+    const m = f.multipliers || { boda: 1, bajaji: 1.15, taxi: 1.5 };
+    return `<div class="row g-4">
+      <div class="col-12 col-lg-6">
+        <div class="card-x p-4">
+          <h6 class="mb-1">Ride fares & charges</h6>
+          <p class="small text-muted mb-3">These values are used by the apps when quoting a ride. Formula: <code>(base + km×perKm + min×perMinute + bookingFee) × vehicle multiplier</code>. Distance prefers Google road distance when the server has <code>GOOGLE_MAPS_API_KEY</code>.</p>
+          <form id="fareForm">
+            <div class="row g-2">
+              <div class="col-6"><label class="form-label">Base fare (TZS)</label>
+                <input class="form-control" name="baseFare" type="number" value="${esc(f.baseFare ?? 2500)}" required min="0" step="1"></div>
+              <div class="col-6"><label class="form-label">Per kilometre (TZS)</label>
+                <input class="form-control" name="perKm" type="number" value="${esc(f.perKm ?? 900)}" required min="0" step="1"></div>
+              <div class="col-6"><label class="form-label">Per minute (TZS)</label>
+                <input class="form-control" name="perMinute" type="number" value="${esc(f.perMinute ?? 150)}" required min="0" step="1"></div>
+              <div class="col-6"><label class="form-label">Booking fee (TZS)</label>
+                <input class="form-control" name="bookingFee" type="number" value="${esc(f.bookingFee ?? 500)}" required min="0" step="1"></div>
+            </div>
+            <hr class="my-3">
+            <p class="small fw-semibold mb-2">Vehicle multipliers</p>
+            <div class="row g-2">
+              <div class="col-4"><label class="form-label">Boda</label>
+                <input class="form-control" name="bodaMultiplier" type="number" value="${esc(m.boda ?? 1)}" required min="0.1" step="0.01"></div>
+              <div class="col-4"><label class="form-label">Bajaji</label>
+                <input class="form-control" name="bajajiMultiplier" type="number" value="${esc(m.bajaji ?? 1.15)}" required min="0.1" step="0.01"></div>
+              <div class="col-4"><label class="form-label">Taxi</label>
+                <input class="form-control" name="taxiMultiplier" type="number" value="${esc(m.taxi ?? 1.5)}" required min="0.1" step="0.01"></div>
+            </div>
+            <button class="btn btn-primary mt-3" type="submit">Save fare settings</button>
+          </form>
+        </div>
+      </div>
+      <div class="col-12 col-lg-6">
+        <div class="card-x p-4">
+          <h6 class="mb-3">Commission & settlement</h6>
+          <form id="commissionForm">
+            <div class="mb-3"><label class="form-label">Settlement cycle limit (TZS)</label>
+              <input class="form-control" name="cycleLimit" type="number" value="${esc(cs.cycleLimit || 60000)}" required min="1"></div>
+            <div class="mb-3"><label class="form-label">ZenjiGO commission (%)</label>
+              <input class="form-control" name="percent" type="number" value="${esc(cs.percent || 20)}" required min="0" max="100" step="0.1"></div>
+            <button class="btn btn-primary" type="submit">Save commission settings</button>
+          </form>
+        </div>
+        <div class="card-x p-4 mt-4">
+          <h6 class="mb-1">Rider near-pickup cancellation</h6>
+          <p class="small text-muted mb-3">If a rider cancels while the driver is within this distance (or has arrived), the driver is credited <b>percent %</b> of the estimated fare (platform fronts it; 0% commission). The same amount is added silently to the rider’s next ride total (recovered via cash / wallet / PayGrid). The rider never sees a separate “cancellation fee” line.</p>
+          <form id="cancelForm">
+            <div class="mb-3"><label class="form-label">Near-pickup radius (km)</label>
+              <input class="form-control" name="nearPickupKm" type="number" value="${esc((D.cancelSettings || {}).nearPickupKm ?? 1)}" required min="0" step="0.1"></div>
+            <div class="mb-3"><label class="form-label">Fee percent of estimated fare</label>
+              <input class="form-control" name="percent" type="number" value="${esc((D.cancelSettings || {}).percent ?? 20)}" required min="0" max="100" step="0.1"></div>
+            <button class="btn btn-primary" type="submit">Save cancellation policy</button>
+          </form>
+        </div>
+      </div>
     </div>`;
   },
 
@@ -873,6 +923,41 @@ function bindPageEvents() {
         percent: Number(fd.get('percent'))
       });
       toast('Commission settings saved');
+      await syncAll();
+      renderPage('pricing');
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+
+  $('#fareForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await API.patch('/admin/fare-settings', {
+        baseFare: Number(fd.get('baseFare')),
+        perKm: Number(fd.get('perKm')),
+        perMinute: Number(fd.get('perMinute')),
+        bookingFee: Number(fd.get('bookingFee')),
+        multipliers: {
+          boda: Number(fd.get('bodaMultiplier')),
+          bajaji: Number(fd.get('bajajiMultiplier')),
+          taxi: Number(fd.get('taxiMultiplier'))
+        }
+      });
+      toast('Fare settings saved — new ride quotes use these values');
+      await syncAll();
+      renderPage('pricing');
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+
+  $('#cancelForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await API.patch('/admin/cancel-settings', {
+        nearPickupKm: Number(fd.get('nearPickupKm')),
+        percent: Number(fd.get('percent'))
+      });
+      toast('Cancellation policy saved');
       await syncAll();
       renderPage('pricing');
     } catch (err) { toast(err.message, 'danger'); }
