@@ -239,10 +239,45 @@ function mapParcel(p) {
   };
 }
 
+/* Badge counts cleared when the matching menu is opened.
+   Badge returns only if the count rises above the value seen at open time. */
+window.__badgeClearedAt = window.__badgeClearedAt || {};
+
+function computeBadgeCounts() {
+  return {
+    live: (D.rides || []).filter(r => !/completed|cancelled|canceled|failed/i.test(r.status || '')).length,
+    drivers: (D.drivers || []).filter(d => /pending|review/i.test(d.status || '')).length,
+    withdrawals: (D.payouts || []).filter(p => /pending/i.test(p.status || '')).length,
+    chat: (D.conversations || []).filter(c => Number(c.unreadCount || c.unread_count || 0) > 0).length,
+    reports: (D.rides || []).filter(r => /cancel|failed|incident|dispute/i.test(r.status || '')).length,
+    notifications: (D.notifications || []).filter(n => !(n.read_at || n.readAt)).length
+  };
+}
+
 function updateIndicators() {
-  const counts = { live: (D.rides || []).filter(r => !/completed|cancelled|canceled|failed/i.test(r.status || '')).length, drivers: (D.drivers || []).filter(d => /pending|review/i.test(d.status || '')).length, withdrawals: (D.payouts || []).filter(p => /pending/i.test(p.status || '')).length, chat: (D.conversations || []).filter(c => Number(c.unreadCount || c.unread_count || 0) > 0).length, reports: (D.rides || []).filter(r => /cancel|failed|incident|dispute/i.test(r.status || '')).length, notifications: (D.notifications || []).filter(n => !(n.read_at || n.readAt)).length };
-  Object.entries(counts).forEach(([page, count]) => { const link = document.querySelector(`.nav-link[data-page="${page}"]`); if (!link) return; let badgeEl = link.querySelector('.nav-badge'); if (count > 0) { if (!badgeEl) { badgeEl = document.createElement('em'); badgeEl.className = 'nav-badge'; link.appendChild(badgeEl); } badgeEl.textContent = count > 99 ? '99+' : String(count); } else if (badgeEl) badgeEl.remove(); });
-  const bell = document.querySelector('.notification-btn span'); if (bell) { const unread = (D.notifications || []).filter(n => !(n.read_at || n.readAt)).length; bell.textContent = unread > 0 ? (unread > 99 ? '99+' : String(unread)) : ''; bell.classList.toggle('has-count', unread > 0); bell.setAttribute('aria-label', `${unread} notifications`); }
+  const counts = computeBadgeCounts();
+  Object.entries(counts).forEach(([page, count]) => {
+    const link = document.querySelector(`.nav-link[data-page="${page}"]`);
+    if (!link) return;
+    const cleared = window.__badgeClearedAt[page];
+    const show = count > 0 && (cleared === undefined || count > Number(cleared));
+    let badgeEl = link.querySelector('.nav-badge');
+    if (show) {
+      if (!badgeEl) { badgeEl = document.createElement('em'); badgeEl.className = 'nav-badge'; link.appendChild(badgeEl); }
+      badgeEl.textContent = count > 99 ? '99+' : String(count);
+    } else if (badgeEl) {
+      badgeEl.remove();
+    }
+  });
+  const bell = document.querySelector('.notification-btn span');
+  if (bell) {
+    const unread = counts.notifications || 0;
+    const cleared = window.__badgeClearedAt.notifications;
+    const showBell = unread > 0 && (cleared === undefined || unread > Number(cleared));
+    bell.textContent = showBell ? (unread > 99 ? '99+' : String(unread)) : '';
+    bell.classList.toggle('has-count', showBell);
+    bell.setAttribute('aria-label', `${unread} notifications`);
+  }
 }
 
 /* ---------- Navigation ---------- */
@@ -269,6 +304,32 @@ const PAGE_META = {
   reports: ['Reports & Safety', 'Review operational activity and safety indicators']
 };
 
+async function clearPageBadges(page) {
+  try {
+    const counts = computeBadgeCounts();
+    // Snapshot current count so the badge hides until the count increases
+    if (page in counts) {
+      window.__badgeClearedAt[page] = counts[page] || 0;
+    }
+    if (page === 'notifications') {
+      const unread = (D.notifications || []).filter(n => !(n.read_at || n.readAt));
+      if (unread.length) {
+        await API.post('/admin/notifications/mark-all-read', {}).catch(() => null);
+        (D.notifications || []).forEach(n => { if (!(n.read_at || n.readAt)) n.read_at = new Date().toISOString(); });
+      }
+      window.__badgeClearedAt.notifications = 0;
+    }
+    if (page === 'chat') {
+      const unreadChat = (D.conversations || []).filter(c => Number(c.unreadCount || c.unread_count || 0) > 0);
+      if (unreadChat.length) {
+        await API.post('/admin/conversations/mark-all-read', {}).catch(() => null);
+        (D.conversations || []).forEach(c => { c.unreadCount = 0; c.unread_count = 0; });
+      }
+      window.__badgeClearedAt.chat = 0;
+    }
+  } catch (_) {}
+}
+
 function renderPage(page) {
   currentPage = page;
   $$('.nav-link[data-page]').forEach((a) => a.classList.toggle('active', a.dataset.page === page));
@@ -279,6 +340,8 @@ function renderPage(page) {
   if (!content) return;
   const fn = window.AdminPages?.[page];
   content.innerHTML = fn ? fn() : `<div class="card-x p-4"><p>Page not available.</p></div>`;
+  // Clear unread badges for notifications & support chat when the menu is opened
+  clearPageBadges(page).then(() => updateIndicators());
   updateIndicators();
   bindPageEvents();
 }
@@ -516,13 +579,42 @@ window.AdminPages = {
   },
 
   chat() {
-    return tableWrap('Conversations', '',
-      '<th>ID</th><th>Type</th><th>Messages</th><th>Updated</th>',
-      (D.conversations || []).map((c) => `<tr data-search="${esc((c.id+' '+c.type+' '+c.context_type).toLowerCase())}">
-        <td>${c.id}</td><td>${esc(c.type || c.context_type || '—')}</td>
-        <td>${c.messageCount || 0}</td>
-        <td class="small">${c.updated_at ? new Date(c.updated_at).toLocaleString() : '—'}</td>
-      </tr>`).join(''));
+    const list = D.conversations || [];
+    const support = list.filter(c => c.type === 'support' || !c.type);
+    const other = list.filter(c => c.type && c.type !== 'support');
+    const rows = (support.length ? support : list).map((c) => {
+      const unread = Number(c.unreadCount || c.unread_count || 0);
+      const name = c.customerName || c.title || ('#' + c.id);
+      const role = c.customerRole || c.type || '—';
+      const last = c.lastMessage || '—';
+      const when = c.lastMessageAt || c.updatedAt || c.updated_at;
+      return `<tr class="chat-thread-row ${unread ? 'is-unread' : ''}" data-conversation-id="${esc(c.id)}" data-search="${esc((name+' '+role+' '+last+' '+c.type).toLowerCase())}" tabindex="0" role="button">
+        <td><div class="fw-semibold">${esc(name)} ${unread ? `<span class="badge text-bg-primary ms-1">${unread > 99 ? '99+' : unread}</span>` : ''}</div>
+          <div class="small text-muted text-capitalize">${esc(role)}</div></td>
+        <td class="small text-truncate" style="max-width:280px">${esc(last)}</td>
+        <td class="small">${c.messageCount || 0}</td>
+        <td class="small">${when ? new Date(when).toLocaleString() : '—'}</td>
+        <td><button class="btn btn-sm btn-primary" data-action="open-chat" data-id="${esc(c.id)}"><i class="bi bi-chat-dots"></i> Open</button></td>
+      </tr>`;
+    }).join('');
+    return toolbar('chatSearch', `<button class="btn btn-sm btn-outline-secondary" data-action="refresh-chat"><i class="bi bi-arrow-clockwise"></i> Refresh</button>`)
+      + tableWrap('Support inbox', '',
+        '<th>Customer</th><th>Last message</th><th>Msgs</th><th>Updated</th><th></th>',
+        rows || '', 'No support conversations yet. They appear when a rider or driver opens Support.')
+      + `<div id="adminChatPanel" class="card-x mt-3 d-none">
+          <div class="card-head d-flex justify-content-between align-items-center gap-2">
+            <div>
+              <h6 class="mb-0" id="adminChatTitle">Conversation</h6>
+              <div class="small text-muted" id="adminChatSub"></div>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" id="adminChatClose"><i class="bi bi-x-lg"></i></button>
+          </div>
+          <div id="adminChatMessages" style="max-height:360px;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px;background:rgba(22,160,133,.03)"></div>
+          <form id="adminChatForm" class="p-3 border-top d-flex gap-2">
+            <input type="text" class="form-control" id="adminChatInput" placeholder="Reply as support…" maxlength="5000" required>
+            <button class="btn btn-primary" type="submit"><i class="bi bi-send-fill"></i></button>
+          </form>
+        </div>`;
   },
 
   audit() {
@@ -663,6 +755,80 @@ function bindPageEvents() {
         tr.classList.toggle('d-none', !match);
       });
     };
+  });
+
+
+  /* Support chat center */
+  let adminCurrentConv = null;
+  const openAdminChat = async (id) => {
+    adminCurrentConv = id;
+    const conv = (D.conversations || []).find(c => String(c.id) === String(id));
+    const panel = $('#adminChatPanel');
+    if (!panel) return;
+    panel.classList.remove('d-none');
+    $('#adminChatTitle').textContent = conv?.customerName || conv?.title || ('Conversation #' + id);
+    $('#adminChatSub').textContent = [conv?.customerRole, conv?.type].filter(Boolean).join(' · ');
+    const box = $('#adminChatMessages');
+    box.innerHTML = '<div class="text-center py-3 text-muted small">Loading…</div>';
+    try {
+      const msgs = await API.get('/admin/conversations/' + encodeURIComponent(id) + '/messages');
+      const list = Array.isArray(msgs) ? msgs : [];
+      const me = API.session()?.user?.id;
+      box.innerHTML = list.map(m => {
+        const mine = m.isMine || m.senderRole === 'admin' || (me && Number(m.senderId) === Number(me));
+        const time = m.createdAt || m.created_at ? new Date(m.createdAt || m.created_at).toLocaleString() : '';
+        const isDark = document.documentElement.dataset.theme === 'dark' || document.documentElement.getAttribute('data-bs-theme') === 'dark';
+        const bg = mine ? '#0d9488' : (isDark ? '#1e3a45' : '#f1f5f9');
+        const fg = mine ? '#ffffff' : (isDark ? '#e8f1f4' : '#0f172a');
+        const border = mine ? 'transparent' : (isDark ? 'rgba(255,255,255,.12)' : 'var(--bs-border-color)');
+        return `<div style="align-self:${mine ? 'flex-end' : 'flex-start'};max-width:75%">
+          <div style="padding:10px 14px;border-radius:14px;background:${bg};color:${fg};border:1px solid ${border};font-size:.9rem;line-height:1.45;word-break:break-word">${esc(m.text || '')}</div>
+          <div class="small mt-1" style="text-align:${mine ? 'right' : 'left'};color:${isDark ? 'rgba(232,241,244,.65)' : 'var(--bs-secondary-color)'}">${esc(m.senderName || m.senderRole || '')} · ${esc(time)}</div>
+        </div>`;
+      }).join('') || '<div class="text-muted small text-center">No messages yet</div>';
+      box.scrollTop = box.scrollHeight;
+      await API.post('/admin/conversations/' + encodeURIComponent(id) + '/read', {}).catch(() => null);
+      if (conv) { conv.unreadCount = 0; conv.unread_count = 0; }
+      updateIndicators();
+    } catch (err) {
+      box.innerHTML = '<div class="text-danger small">' + esc(err.message) + '</div>';
+    }
+  };
+  $$('#content [data-action="open-chat"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); openAdminChat(btn.dataset.id); });
+  });
+  $$('#content tr[data-conversation-id]').forEach((row) => {
+    row.addEventListener('click', () => openAdminChat(row.dataset.conversationId));
+  });
+  $('#adminChatClose')?.addEventListener('click', () => { $('#adminChatPanel')?.classList.add('d-none'); adminCurrentConv = null; });
+  $('#adminChatForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!adminCurrentConv) return;
+    const input = $('#adminChatInput');
+    const text = (input?.value || '').trim();
+    if (!text) return;
+    const state = loadBtn(e.submitter);
+    try {
+      await API.post('/admin/conversations/' + encodeURIComponent(adminCurrentConv) + '/messages', { text });
+      input.value = '';
+      await openAdminChat(adminCurrentConv);
+      const refreshed = await API.get('/admin/conversations').catch(() => null);
+      if (Array.isArray(refreshed)) D.conversations = refreshed;
+      updateIndicators();
+    } catch (err) { toast(err.message, 'error'); }
+    finally { state.done(); }
+  });
+  $$('#content [data-action="refresh-chat"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const state = loadBtn(btn);
+      try {
+        const refreshed = await API.get('/admin/conversations');
+        D.conversations = refreshed || [];
+        renderPage('chat');
+        toast('Inbox refreshed');
+      } catch (err) { toast(err.message, 'error'); }
+      finally { state.done(); }
+    });
   });
 
   $$('#content tr[data-notification-id]').forEach((row) => {
