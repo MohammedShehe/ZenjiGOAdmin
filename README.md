@@ -32,7 +32,7 @@ npm run seed
 npm run dev
 ```
 
-Open: `http://localhost:5000/admin`
+Open: `https://zenjigo-backend.onrender.com/admin`
 
 ### Option B — static server
 
