@@ -149,16 +149,22 @@ async function syncAll() {
 window.syncAll = syncAll;
 
 function mapRide(r) {
+  const driverName = r.driverName || r.driver_name || (r.driver_id ? ('Driver #' + r.driver_id) : '—');
   return {
     id: r.ride_code || r.id, dbId: r.id,
-    rider: r.riderName || '—', driver: r.driverName || '—',
+    rider: r.riderName || r.rider_name || '—',
+    driver: driverName,
     type: String(r.ride_type || '').replace(/^./, (x) => x.toUpperCase()),
     from: r.pickup_address, to: r.destination_address,
     fare: Number(r.final_fare ?? r.estimated_fare ?? 0),
     status: r.status, payment: r.payment_method || 'Cash',
     time: r.created_at ? new Date(r.created_at).toLocaleString() : '—',
     pin: r.trip_pin || '—',
-    distance: (r.estimated_distance_km || 0) + ' km'
+    distance: (r.estimated_distance_km || 0) + ' km',
+    cancelReason: r.cancel_reason || r.cancelReason || '',
+    cancelledAt: r.cancelled_at || r.cancelledAt || null,
+    riderPhone: r.riderPhone || r.rider_phone || '',
+    driverPhone: r.driverPhone || r.driver_phone || ''
   };
 }
 
@@ -177,6 +183,15 @@ function mapArchive(a) {
 }
 
 function mapDriver(d) {
+  const nearest = d.nearestDocExpiry || d.nearest_doc_expiry || null;
+  let docExpiryStatus = 'ok';
+  if (Number(d.expiredDocsCount || d.expired_docs_count || 0) > 0) docExpiryStatus = 'expired';
+  else if (Number(d.expiringSoonCount || d.expiring_soon_count || 0) > 0) docExpiryStatus = 'expiring';
+  else if (nearest) {
+    const days = Math.ceil((new Date(nearest) - new Date()) / 86400000);
+    if (days < 0) docExpiryStatus = 'expired';
+    else if (days <= 30) docExpiryStatus = 'expiring';
+  }
   return {
     id: d.id, dbId: d.id, code: d.driverCode || d.id,
     name: d.fullName || d.name || '—', phone: d.phone || '—', email: d.email || '—',
@@ -191,7 +206,9 @@ function mapDriver(d) {
     nationalId: d.nationalId || d.national_id || '',
     homeAddress: d.homeAddress || d.home_address || '',
     rejectionReason: d.rejectionReason || d.rejection_reason || '',
-    approvedAt: d.approvedAt || d.approved_at || null
+    approvedAt: d.approvedAt || d.approved_at || null,
+    nearestDocExpiry: nearest,
+    docExpiryStatus
   };
 }
 function mapRider(r) {
@@ -236,10 +253,21 @@ function mapTour(t) {
 function mapParcel(p) {
   return {
     id: p.parcel_code || p.id, dbId: p.id,
-    rider: p.riderName, driver: p.driverName || '—',
-    pickup: p.pickup_address, drop: p.delivery_address,
-    weight: (p.weight_kg || 0) + ' kg', status: p.status,
-    time: p.created_at ? new Date(p.created_at).toLocaleString() : '—'
+    rider: p.riderName || p.rider_name || '—',
+    driver: p.driverName || p.driver_name || '—',
+    pickup: p.pickup_address || '—',
+    drop: p.delivery_address || '—',
+    weight: (p.weight_kg != null ? p.weight_kg : 0) + ' kg',
+    status: p.status || '—',
+    time: p.created_at ? new Date(p.created_at).toLocaleString() : '—',
+    description: p.description || p.parcel_description || '',
+    recipientName: p.recipient_name || p.recipientName || '',
+    recipientPhone: p.recipient_phone || p.recipientPhone || '',
+    fee: Number(p.delivery_fee ?? p.fee ?? p.estimated_fare ?? 0),
+    payment: p.payment_method || 'Cash',
+    notes: p.notes || p.special_instructions || '',
+    size: p.size || p.package_size || '',
+    category: p.category || p.parcel_type || ''
   };
 }
 
@@ -394,27 +422,29 @@ window.AdminPages = {
     const active = D.rides.filter(r => !/completed|cancelled|canceled|failed/i.test(r.status || '')).length;
     const pending = D.drivers.filter(d => /pending|review/i.test(d.status || '')).length;
     const suspended = D.riders.filter(r => /suspended|restricted/i.test(r.status || '')).length + D.drivers.filter(d => /suspended|rejected/i.test(d.status || '')).length;
-    return `<div class="row g-3 mb-3"><div class="col-12 col-md-4"><div class="card-x p-3"><small class="text-muted">Active rides</small><h3>${active}</h3></div></div><div class="col-12 col-md-4"><div class="card-x p-3"><small class="text-muted">Driver applications to review</small><h3>${pending}</h3></div></div><div class="col-12 col-md-4"><div class="card-x p-3"><small class="text-muted">Restricted accounts</small><h3>${suspended}</h3></div></div></div>` + toolbar('reportsSearch') + tableWrap('Safety and operational review', '', '<th>Category</th><th>Reference</th><th>Person / detail</th><th>Status</th><th>Time</th>', [...D.drivers.filter(d => /pending|review|suspended|rejected/i.test(d.status || '')).map(d => ({category:'Driver review',id:d.id,name:d.name,status:d.status,time:'—'})), ...D.rides.filter(r => /cancel|failed|incident|dispute/i.test(r.status || '')).map(r => ({category:'Ride follow-up',id:r.id,name:(r.rider+' / '+r.driver),status:r.status,time:r.time}))].map(x => `<tr data-search="${esc((x.category+' '+x.id+' '+x.name+' '+x.status).toLowerCase())}"><td>${esc(x.category)}</td><td>${esc(x.id)}</td><td>${esc(x.name)}</td><td>${badge(x.status)}</td><td>${esc(x.time)}</td></tr>`).join(''), 'No review items found in the currently available records.');
+    return `<div class="row g-3 mb-3"><div class="col-12 col-md-4"><div class="card-x p-3"><small class="text-muted">Active rides</small><h3>${active}</h3></div></div><div class="col-12 col-md-4"><div class="card-x p-3"><small class="text-muted">Driver applications to review</small><h3>${pending}</h3></div></div><div class="col-12 col-md-4"><div class="card-x p-3"><small class="text-muted">Restricted accounts</small><h3>${suspended}</h3></div></div></div>` + toolbar('reportsSearch') + tableWrap('Safety and operational review', '', '<th>Category</th><th>Reference</th><th>Person / detail</th><th>Status</th><th>Time</th>', [...D.drivers.filter(d => /pending|review|suspended|rejected/i.test(d.status || '')).map(d => ({category:'Driver review',id:d.id,name:d.name,status:d.status,time:'—'})), ...D.rides.filter(r => /cancel|failed|incident|dispute/i.test(r.status || '')).map(r => ({category:'Cancelled / issue ride',id:r.id,name:(r.rider+' / '+r.driver),detail:r.cancelReason || 'No reason provided',status:r.status,time:r.time}))].map(x => `<tr data-search="${esc((x.category+' '+x.id+' '+x.name+' '+(x.detail||'')+' '+x.status).toLowerCase())}"><td>${esc(x.category)}</td><td>${esc(x.id)}</td><td>${esc(x.name)}${x.detail ? `<div class="small text-muted mt-1">${esc(x.detail)}</div>` : ''}</td><td>${badge(x.status)}</td><td>${esc(x.time)}</td></tr>`).join(''), 'No review items found in the currently available records.');
   },
   dashboard() {
     const d = D.dashboard || {};
+    // label, value, icon, target page, optional filter query
     const cards = [
-      ['Users', d.users || 0, 'bi-people'],
-      ['Riders', d.riders || 0, 'bi-person'],
-      ['Drivers', d.drivers || 0, 'bi-scooter'],
-      ['Admins', d.admins || 0, 'bi-shield-lock'],
-      ["Today's rides", d.todayRides || 0, 'bi-geo-alt'],
-      ['Active rides', d.activeRides || 0, 'bi-activity'],
-      ['Pending apps', d.pendingDriverApplications || 0, 'bi-hourglass-split'],
-      ["Today's revenue", money(d.todayRevenue || 0), 'bi-cash-stack']
+      ['Users', d.users || 0, 'bi-people', 'riders', ''],
+      ['Riders', d.riders || 0, 'bi-person', 'riders', ''],
+      ['Drivers', d.drivers || 0, 'bi-scooter', 'drivers', ''],
+      ['Admins', d.admins || 0, 'bi-shield-lock', 'admins', ''],
+      ["Today's rides", d.todayRides || 0, 'bi-geo-alt', 'rides', ''],
+      ['Active rides', d.activeRides || 0, 'bi-activity', 'live', ''],
+      ['Pending apps', d.pendingDriverApplications || 0, 'bi-hourglass-split', 'drivers', 'pending'],
+      ["Today's revenue", money(d.todayRevenue || 0), 'bi-cash-stack', 'finance', '']
     ];
-    return `<div class="row g-3 mb-3">${cards.map(([l, v, i]) =>
-      `<div class="col-6 col-md-3"><div class="card-x p-3 h-100">
+    return `<div class="row g-3 mb-3">${cards.map(([l, v, i, page, filter]) =>
+      `<div class="col-6 col-md-3"><div class="card-x p-3 h-100 metric-card" role="button" tabindex="0" data-metric-page="${esc(page)}" data-metric-filter="${esc(filter)}" title="Open ${esc(l)}">
         <div class="d-flex justify-content-between"><span class="text-muted small">${esc(l)}</span><i class="bi ${i} text-primary"></i></div>
         <div class="fs-4 fw-bold mt-1">${typeof v === 'number' ? v.toLocaleString() : esc(v)}</div>
+        <div class="small text-primary mt-1 metric-hint"><i class="bi bi-arrow-right-circle me-1"></i>View</div>
       </div></div>`).join('')}</div>
       ${tableWrap('Recent rides', '', '<th>ID</th><th>Rider</th><th>Driver</th><th>Type</th><th>Fare</th><th>Status</th><th>Time</th>',
-        D.rides.slice(0, 8).map((r) => `<tr><td>${esc(r.id)}</td><td>${esc(r.rider)}</td><td>${esc(r.driver)}</td><td>${esc(r.type)}</td><td>${money(r.fare)}</td><td>${badge(r.status)}</td><td>${esc(r.time)}</td></tr>`).join(''),
+        D.rides.slice(0, 8).map((r) => `<tr data-search="${esc((r.id+' '+r.rider+' '+r.driver+' '+r.status).toLowerCase())}"><td>${esc(r.id)}</td><td>${esc(r.rider)}</td><td>${esc(r.driver)}</td><td>${esc(r.type)}</td><td>${money(r.fare)}</td><td>${badge(r.status)}</td><td>${esc(r.time)}</td></tr>`).join(''),
         'No rides yet')}`;
   },
 
@@ -448,26 +478,45 @@ window.AdminPages = {
   },
 
   drivers() {
+    const statusFilter = `<select class="form-select form-select-sm filter-status" data-filter="status" style="width:auto;min-width:150px">
+      <option value="">All statuses</option>
+      <option value="under_review">Under review</option>
+      <option value="pending">Pending</option>
+      <option value="active">Active</option>
+      <option value="rejected">Rejected</option>
+      <option value="suspended">Suspended</option>
+    </select>
+    <select class="form-select form-select-sm" id="docExpiryFilter" style="width:auto;min-width:160px">
+      <option value="">Docs: all</option>
+      <option value="expired">Docs expired</option>
+      <option value="expiring">Docs expiring ≤30d</option>
+      <option value="ok">Docs OK</option>
+    </select>
+    <button class="btn btn-sm btn-outline-danger" id="btnBulkDeleteDrivers" title="Archive selected"><i class="bi bi-trash"></i> Bulk archive</button>`;
     return toolbar('driverSearch',
       `<button class="btn btn-sm btn-primary" data-action="add-driver"><i class="bi bi-plus-lg"></i> Add driver</button>
-       <button class="btn btn-sm btn-outline-primary" id="btnRefreshDrivers"><i class="bi bi-arrow-clockwise"></i></button>`)
-      + tableWrap('Drivers', '',
-        '<th>Driver</th><th>Phone</th><th>Email</th><th>Type</th><th>Plate</th><th>Make / Model</th><th>Color</th><th>Year</th><th>Rides</th><th>Rating</th><th>Status</th><th>Online</th><th></th>',
-        D.drivers.map((d) => `<tr data-search="${esc((String(d.id)+' '+String(d.code||'')+' '+d.name+' '+d.phone+' '+(d.email||'')+' '+d.status+' '+d.plate+' '+(d.make||'')+' '+(d.model||'')+' '+(d.color||'')+' '+(d.year||'')).toLowerCase())}">
+       <button class="btn btn-sm btn-outline-primary" id="btnRefreshDrivers"><i class="bi bi-arrow-clockwise"></i></button>${statusFilter}`)
+      + tableWrap('Drivers', 'Fleet, applications, document expiry and performance.',
+        '<th><input type="checkbox" id="bulkSelectAll" title="Select all"></th><th>Driver</th><th>Phone</th><th>Email</th><th>Type</th><th>Plate</th><th>Make / Model</th><th>Rides</th><th>Rating</th><th>Status</th><th>Documents</th><th>Online</th><th></th>',
+        D.drivers.map((d) => {
+          let docBadge = '<span class="badge text-bg-success">OK</span>';
+          if (d.docExpiryStatus === 'expired') docBadge = '<span class="badge text-bg-danger">Expired</span>';
+          else if (d.docExpiryStatus === 'expiring') docBadge = `<span class="badge text-bg-warning text-dark">Expires ${d.nearestDocExpiry ? new Date(d.nearestDocExpiry).toLocaleDateString() : 'soon'}</span>`;
+          return `<tr data-search="${esc((String(d.id)+' '+String(d.code||'')+' '+d.name+' '+d.phone+' '+(d.email||'')+' '+d.status+' '+d.plate+' '+(d.make||'')+' '+(d.model||'')+' '+d.docExpiryStatus).toLowerCase())}" data-status="${esc(d.status)}" data-doc-expiry="${esc(d.docExpiryStatus)}">
+          <td><input type="checkbox" class="row-check" value="${esc(d.id)}"></td>
           <td>${userCell(d.name, d.code, 'green')}</td><td>${esc(d.phone)}</td><td class="small">${esc(d.email)}</td>
           <td>${esc(d.type)}</td><td>${esc(d.plate)}</td>
           <td class="small">${esc([d.make, d.model].filter(Boolean).join(' ') || '—')}</td>
-          <td class="small">${esc(d.color || '—')}</td><td class="small">${esc(d.year || '—')}</td>
-          <td>${d.rides}</td><td>${d.rating}</td><td>${badge(d.status)}${d.rejectionReason ? `<div class="small text-danger mt-1" title="${esc(d.rejectionReason)}">${esc(String(d.rejectionReason).slice(0, 40))}${String(d.rejectionReason).length > 40 ? '…' : ''}</div>` : ''}</td>
+          <td>${d.rides}</td><td>${d.rating}</td>
+          <td>${badge(d.status)}${d.rejectionReason ? `<div class="small text-danger mt-1" title="${esc(d.rejectionReason)}">${esc(String(d.rejectionReason).slice(0, 40))}${String(d.rejectionReason).length > 40 ? '…' : ''}</div>` : ''}</td>
+          <td>${docBadge}</td>
           <td>${d.online ? '<span class="text-success">● Online</span>' : '<span class="text-muted">○ Offline</span>'}</td>
           <td class="text-nowrap">
-            <button class="btn btn-sm btn-outline-primary" data-action="view-driver" data-id="${d.id}" title="View documents & details"><i class="bi bi-eye"></i></button>
+            <button class="btn btn-sm btn-outline-primary" data-action="view-driver" data-id="${d.id}" title="View"><i class="bi bi-eye"></i></button>
             <button class="btn btn-sm btn-outline-secondary" data-action="edit-driver" data-id="${d.id}" title="Edit"><i class="bi bi-pencil"></i></button>
-            <button class="btn btn-sm btn-outline-success" data-action="driver-status" data-id="${d.id}" data-status="active" title="Approve/Activate"><i class="bi bi-check-lg"></i></button>
-            <button class="btn btn-sm btn-outline-danger" data-action="reject-driver" data-id="${d.id}" title="Reject with reason"><i class="bi bi-x-lg"></i></button>
-            <button class="btn btn-sm btn-outline-warning" data-action="driver-status" data-id="${d.id}" data-status="suspended" title="Suspend"><i class="bi bi-pause"></i></button>
             <button class="btn btn-sm btn-outline-danger" data-action="delete-driver" data-id="${d.id}" title="Archive user"><i class="bi bi-trash"></i></button>
-          </td></tr>`).join(''));
+          </td></tr>`;
+        }).join(''), 'No drivers found.');
   },
 
   riders() {
@@ -503,11 +552,22 @@ window.AdminPages = {
   },
 
   parcels() {
-    return toolbar('parcelSearch') + tableWrap('Parcels', '',
-      '<th>Code</th><th>Rider</th><th>Driver</th><th>Pickup → Drop</th><th>Weight</th><th>Status</th><th>Time</th>',
-      D.parcels.map((p) => `<tr data-search="${esc((String(p.id)+' '+(p.rider||'')+' '+(p.driver||'')+' '+p.status).toLowerCase())}">
-        <td><b>${esc(p.id)}</b></td><td>${esc(p.rider)}</td><td>${esc(p.driver)}</td>
-        <td class="small">${esc(p.pickup)} → ${esc(p.drop)}</td><td>${esc(p.weight)}</td><td>${badge(p.status)}</td><td class="small">${esc(p.time)}</td></tr>`).join(''));
+    return toolbar('parcelSearch',
+      `<select class="form-select form-select-sm filter-status" data-filter="status" style="width:auto;min-width:140px">
+        <option value="">All statuses</option>
+        <option>pending</option><option>assigned</option><option>picked_up</option>
+        <option>in_transit</option><option>delivered</option><option>cancelled</option>
+      </select>`) + tableWrap('Parcels', 'Full parcel delivery details from the platform.',
+      '<th><input type="checkbox" id="bulkSelectAll" title="Select all"></th><th>Code</th><th>Rider</th><th>Driver</th><th>Recipient</th><th>Pickup → Drop</th><th>Weight</th><th>Fee</th><th>Status</th><th>Time</th>',
+      D.parcels.map((p) => `<tr data-search="${esc((String(p.id)+' '+(p.rider||'')+' '+(p.driver||'')+' '+(p.recipientName||'')+' '+p.status+' '+(p.description||'')).toLowerCase())}" data-status="${esc(p.status)}">
+        <td><input type="checkbox" class="row-check" value="${esc(p.dbId || p.id)}"></td>
+        <td><b>${esc(p.id)}</b>${p.description ? `<div class="small text-muted">${esc(String(p.description).slice(0,40))}</div>` : ''}</td>
+        <td>${esc(p.rider)}</td><td>${esc(p.driver)}</td>
+        <td class="small">${esc(p.recipientName || '—')}${p.recipientPhone ? `<div class="text-muted">${esc(p.recipientPhone)}</div>` : ''}</td>
+        <td class="small">${esc(p.pickup)} → ${esc(p.drop)}</td>
+        <td>${esc(p.weight)}</td><td>${money(p.fee)}</td>
+        <td>${badge(p.status)}</td><td class="small">${esc(p.time)}</td></tr>`).join(''),
+      'No parcels found.');
   },
 
   tours() {
@@ -802,16 +862,59 @@ function bindPageEvents() {
   // Table filter (supports name, phone, email, plate, codes, and numeric IDs)
   $$('.toolbar input[id$="Search"]').forEach((inp) => {
     inp.oninput = () => {
-      const q = inp.value.toLowerCase().trim();
-      $$('#content tbody tr').forEach((tr) => {
-        if (!q) { tr.classList.remove('d-none'); return; }
-        const hay = (tr.getAttribute('data-search') || tr.textContent || '').toLowerCase();
-        const match = hay.includes(q)
+      applyRowFilters();
+    };
+  });
+
+  function applyRowFilters() {
+    const q = ($$('.toolbar input[id$="Search"]').find(i => i.offsetParent !== null)?.value || '').toLowerCase().trim();
+    const statusSel = document.querySelector('#content select.filter-status, #content select[data-filter="status"]');
+    const statusVal = (statusSel?.value || '').toLowerCase();
+    const docSel = document.getElementById('docExpiryFilter');
+    const docVal = (docSel?.value || '').toLowerCase();
+    $$('#content tbody tr').forEach((tr) => {
+      const hay = (tr.getAttribute('data-search') || tr.textContent || '').toLowerCase();
+      const st = (tr.getAttribute('data-status') || '').toLowerCase();
+      const doc = (tr.getAttribute('data-doc-expiry') || '').toLowerCase();
+      let match = true;
+      if (q) {
+        match = hay.includes(q)
           || hay.split(/\s+/).some((tok) => tok === q || tok.replace(/^#/, '') === q)
           || (q.replace(/\D/g, '') && hay.replace(/\D/g, '').includes(q.replace(/\D/g, '')));
-        tr.classList.toggle('d-none', !match);
-      });
+      }
+      if (match && statusVal) match = st.includes(statusVal) || hay.includes(statusVal);
+      if (match && docVal) match = doc === docVal;
+      tr.classList.toggle('d-none', !match);
+    });
+  }
+
+  $$('#content select.filter-status, #content select[data-filter="status"], #docExpiryFilter').forEach((sel) => {
+    sel.onchange = () => applyRowFilters();
+  });
+
+  // Bulk select all
+  const bulkAll = document.getElementById('bulkSelectAll');
+  if (bulkAll) {
+    bulkAll.onchange = () => {
+      $$('#content tbody tr:not(.d-none) .row-check').forEach((c) => { c.checked = bulkAll.checked; });
     };
+  }
+
+  // Bulk archive drivers
+  document.getElementById('btnBulkDeleteDrivers')?.addEventListener('click', async () => {
+    const ids = $$('#content .row-check:checked').map((c) => c.value).filter(Boolean);
+    if (!ids.length) return toast('Select at least one driver', 'warning');
+    if (!confirm(`Archive ${ids.length} selected driver(s)?`)) return;
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try {
+        await API.delete('/admin/drivers/' + encodeURIComponent(id));
+        ok++;
+      } catch (_) { fail++; }
+    }
+    toast(`Archived ${ok}${fail ? `, failed ${fail}` : ''}`);
+    await syncAll();
+    renderPage('drivers');
   });
 
 
@@ -1041,8 +1144,41 @@ function initAuthUI() {
     b.addEventListener('click', () => renderPage(b.dataset.pageJump));
   });
 
-  $('#openSidebar')?.addEventListener('click', () => $('#adminApp')?.classList.add('sidebar-open'));
-  $('#sidebarBackdrop')?.addEventListener('click', () => $('#adminApp')?.classList.remove('sidebar-open'));
+  const openMobileNav = () => $('#adminApp')?.classList.add('sidebar-open');
+  const closeMobileNav = () => $('#adminApp')?.classList.remove('sidebar-open');
+  $('#openSidebar')?.addEventListener('click', openMobileNav);
+  $('#closeSidebar')?.addEventListener('click', closeMobileNav);
+  $('#sidebarBackdrop')?.addEventListener('click', closeMobileNav);
+
+  // Clickable dashboard metric cards
+  document.addEventListener('click', (e) => {
+    const card = e.target.closest('.metric-card[data-metric-page]');
+    if (!card) return;
+    const page = card.dataset.metricPage;
+    const filter = card.dataset.metricFilter || '';
+    if (!page) return;
+    renderPage(page);
+    if (filter) {
+      setTimeout(() => {
+        const search = document.querySelector('#content input[id$="Search"], #content .global-search input, #driverSearch, #rideSearch');
+        if (search) {
+          search.value = filter;
+          search.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        // Prefer status filter selects if present
+        const statusSel = document.querySelector('#content select[data-filter="status"], #content select.filter-status');
+        if (statusSel) {
+          statusSel.value = filter;
+          statusSel.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }, 80);
+    }
+  });
+
+  // Escape key closes mobile sidebar
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeMobileNav();
+  });
 
   const applyTheme = (theme) => { document.documentElement.dataset.theme = theme; document.documentElement.setAttribute('data-bs-theme', theme); localStorage.setItem('zenjigo-theme', theme); const icon = $('#themeBtn i'); if (icon) icon.className = 'bi ' + (theme === 'dark' ? 'bi-sun' : 'bi-moon-stars'); };
   applyTheme(localStorage.getItem('zenjigo-theme') || 'light');

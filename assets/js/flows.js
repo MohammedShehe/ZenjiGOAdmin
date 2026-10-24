@@ -62,21 +62,29 @@ document.addEventListener('click', async (e) => {
         openModal('DRIVER', 'Add driver',
           `<form id="flowForm" class="professional-form">
             <div class="form-intro"><span class="form-icon"><i class="bi bi-person-vcard"></i></span>
-              <div><h6>Driver profile</h6><p>Enter contact and full vehicle details (same fields as driver registration).</p></div>
+              <div><h6>Driver profile</h6><p>Enter contact, vehicle and document details. Application status advances level by level (under_review → active).</p></div>
             </div>
             <div class="row g-3">
               <div class="col-12 col-md-6">${input('Full name', 'fullName')}</div>
               <div class="col-12 col-md-6">${input('Phone number', 'phone', 'tel', '', true, 'placeholder="+255…"')}</div>
               <div class="col-12 col-md-6">${input('Email address', 'email', 'email', '', false)}</div>
-              <div class="col-12 col-md-6">${input('National ID', 'nationalId', 'text', '', false)}</div>
+              <div class="col-12 col-md-6">${input('National ID', 'nationalId', 'text', '', true)}</div>
               <div class="col-12">${input('Home address', 'homeAddress', 'text', '', false)}</div>
+              <div class="col-12"><hr class="my-1"><h6 class="small text-muted text-uppercase mb-2">Vehicle</h6></div>
               <div class="col-12 col-md-4">${select('Vehicle type', 'vehicleType', ['taxi', 'boda', 'bajaji'])}</div>
               <div class="col-12 col-md-4">${input('Plate number', 'plateNumber')}</div>
               <div class="col-12 col-md-4">${input('Color', 'color', 'text', '', false)}</div>
               <div class="col-12 col-md-4">${input('Make', 'make', 'text', '', false)}</div>
               <div class="col-12 col-md-4">${input('Model', 'model', 'text', '', false)}</div>
               <div class="col-12 col-md-4">${input('Year', 'year', 'number', '', false, 'min="1990" max="2035" placeholder="e.g. 2020"')}</div>
-              <div class="col-12 col-md-6">${select('Application status', 'status', ['under_review', 'active', 'pending'])}</div>
+              <div class="col-12"><hr class="my-1"><h6 class="small text-muted text-uppercase mb-2">Documents & expiry</h6></div>
+              <div class="col-12 col-md-6">${input("Driver's license number", 'licenseNumber', 'text', '', false)}</div>
+              <div class="col-12 col-md-6">${input('License expiry date', 'licenseExpiresAt', 'date', '', false)}</div>
+              <div class="col-12 col-md-6">${input('Insurance policy #', 'insuranceNumber', 'text', '', false)}</div>
+              <div class="col-12 col-md-6">${input('Insurance expiry date', 'insuranceExpiresAt', 'date', '', false)}</div>
+              <div class="col-12 col-md-6">${input('National ID expiry (optional)', 'nationalIdExpiresAt', 'date', '', false)}</div>
+              <div class="col-12 col-md-6">${select('Application status', 'status', ['under_review', 'pending', 'active'])}</div>
+              <div class="col-12"><p class="form-text mb-0">After creation, upload document images from the driver detail view. Status advances under_review → active once documents are verified.</p></div>
             </div>
           </form>`,
           `<button class="btn btn-primary" data-flow-submit="create-driver"><i class="bi bi-check2-circle me-1"></i>Create driver</button>`);
