@@ -433,7 +433,17 @@ document.addEventListener('click', async (e) => {
       case 'settle-driver': {
         if (!confirm('Record that this driver has paid the commission they owe (cash / bank, outside the app)?\n\nThis clears their outstanding commission and unblocks them. Mobile-money payments are confirmed automatically — do not use this for those.')) return;
         const reference = prompt('Payment reference / receipt number (optional):') || '';
-        await API.post(`/admin/drivers/${id}/settle`, { reference });
+        try {
+          await API.post(`/admin/drivers/${id}/settle`, { reference });
+        } catch (err) {
+          const msg = (err && err.message) || '';
+          if (msg.includes('awaiting confirmation') || msg.includes('force=true')) {
+            if (!confirm('A mobile-money payment is still awaiting confirmation for this driver.\n\nIf they paid cash (or the mobile prompt failed), click OK to force-record this cash payment and close the pending charge.')) throw err;
+            await API.post(`/admin/drivers/${id}/settle`, { reference, force: true });
+          } else {
+            throw err;
+          }
+        }
         toast('Commission payment recorded');
         await afterMutation('finance');
         break;

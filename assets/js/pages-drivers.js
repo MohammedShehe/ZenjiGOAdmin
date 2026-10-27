@@ -249,7 +249,25 @@
     const p = Z._drv.D.profile; const owed = Number(Z._drv.D.financials.commission_owed);
     const ok = await Z.formModal({ title: 'Record settlement', subtitle: `${p.full_name} owes ${F.money(owed)}`, size: 'sm', submitLabel: 'Record settlement',
       fields: [{ name: 'reference', label: 'Payment reference', col: 12, maxLength: 120, placeholder: 'Receipt or transfer number', hint: 'Cash receipt, bank slip or mobile-money transaction ID.' }, { name: 'note', label: 'Note', type: 'textarea', col: 12, maxLength: 300 }],
-      onSubmit: (v) => Z.api.post(`/admin/drivers/${p.id}/settle`, v) });
+      onSubmit: async (v) => {
+        try {
+          await Z.api.post(`/admin/drivers/${p.id}/settle`, v);
+        } catch (err) {
+          const msg = (err && err.message) || '';
+          if (msg.includes('awaiting confirmation') || msg.includes('force=true')) {
+            const forceOk = await Z.confirm({
+              title: 'Pending mobile-money payment',
+              tone: 'warn',
+              confirmLabel: 'Record cash payment anyway',
+              message: 'A mobile-money charge is still awaiting confirmation for this driver. If the driver paid cash (or the mobile prompt failed/expired), you can override and record this cash payment. The pending mobile charge will be closed as settled by admin.'
+            });
+            if (!forceOk) throw err;
+            await Z.api.post(`/admin/drivers/${p.id}/settle`, { ...v, force: true });
+          } else {
+            throw err;
+          }
+        }
+      } });
     if (ok) { Z.toast('Settlement recorded. Commission balance updated.'); Z.reloadPage(); }
   });
 

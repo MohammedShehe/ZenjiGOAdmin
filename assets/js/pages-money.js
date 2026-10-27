@@ -67,7 +67,25 @@
     const b = Z._fin.bal.find((x) => String(x.driver_id) === id);
     const ok = await Z.formModal({ title: 'Record commission payment', subtitle: `${b.driverName} owes ${F.money(b.commission_owed)}`, size: 'sm', submitLabel: 'Record payment',
       fields: [{ name: 'reference', label: 'Payment reference', col: 12, maxLength: 120, placeholder: 'Receipt / transfer number' }, { name: 'note', label: 'Note', type: 'textarea', col: 12, maxLength: 300 }],
-      onSubmit: (v) => Z.api.post(`/admin/drivers/${id}/settle`, v) });
+      onSubmit: async (v) => {
+        try {
+          await Z.api.post(`/admin/drivers/${id}/settle`, v);
+        } catch (err) {
+          const msg = (err && err.message) || '';
+          if (msg.includes('awaiting confirmation') || msg.includes('force=true')) {
+            const forceOk = await Z.confirm({
+              title: 'Pending mobile-money payment',
+              tone: 'warn',
+              confirmLabel: 'Record cash payment anyway',
+              message: 'A mobile-money charge is still awaiting confirmation for this driver. If the driver paid cash (or the mobile prompt failed/expired), you can override and record this cash payment. The pending mobile charge will be closed as settled by admin.'
+            });
+            if (!forceOk) throw err;
+            await Z.api.post(`/admin/drivers/${id}/settle`, { ...v, force: true });
+          } else {
+            throw err;
+          }
+        }
+      } });
     if (ok) { Z.toast('Payment recorded. Commission balance updated.'); Z.reloadPage(); }
   });
 
